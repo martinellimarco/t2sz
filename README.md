@@ -1,13 +1,13 @@
 # t2sz
 Compress .tar archives to seekable .tar.zstd
 
-It will compress a tar archive with [Zstandard](https://github.com/facebook/zstd) keeping each file in a different frame, unless `-s` is used.
+It compresses a tar archive with [Zstandard](https://github.com/facebook/zstd) keeping each file in a different frame, unless `-s` is used.
 
 This allows fast seeking and extraction of a single file without decompressing the whole archive.
 
 When `-s SIZE` is used and a file is added, if the size of the file is less than `SIZE` then another one will be added in the same block, and so on until the sum of the sizes of all files packed together is at least `SIZE`.
 
-A file will be never truncated. `SIZE` is only a minimum quantity.
+A file will be never truncated as `SIZE` is just a minimum value.
 
 A single block of one or more files is compressed into a single Zstandard frame. If the files in the same block are correlatable the compression ratio will be higher.
 
@@ -91,7 +91,7 @@ The real answer is that it depends on the kind of data you are working with. In 
 
 If you are working with big files (hundreds of MiB) then you will not have many benefits in terms of seeking time if you use `-s`, but you should increase your compression level to get smaller archives.
 
-On the other hand, if you have a thousands of small files (few MiB or less) that usually compress well and are correlated you may take advantage of both `-s` and `-l`.
+On the other hand, if you have thousands of small files (few MiB or less) that usually compress well and are correlated you may take advantage of both `-s` and `-l`.
 
 What follows is a test I made with a dataset of ~100.000 binary files less than 4MiB in size. The exact numbers are not important.
 
@@ -101,7 +101,7 @@ Intuitively at `-s 1K -l 1` the resulting archive is 57.38% of the size of the u
 
 At the same time `-s 256M -l 22` gives the best results in term of compression ration, with a generated archive that is only 33.47% of the original.
 
-Of course seeking in a block of 256M is not too fast. A safer choice in this particular case is something around `-s 32N`.
+Obviously seeking in a block of 256M is not that quick: a safer choice in this particular case is something around `-s 32M`.
 
 The second table shows the time it took to compress each archive, divided by the minimum time.
 
