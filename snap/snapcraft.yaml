@@ -18,3 +18,7 @@ parts:
     build-packages:
       - libzstd-dev
 
+apps:
+  t2sz:
+    command: usr/bin/t2sz
+
