@@ -21,6 +21,4 @@ parts:
 apps:
   t2sz:
     command: usr/bin/t2sz
-    plugs:
-      - home
 
