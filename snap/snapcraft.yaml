@@ -9,7 +9,7 @@ description: |
   It can also be mounted with ratarmount.
 
 grade: stable
-confinement: strict
+confinement: classic
 
 parts:
   t2sz:
