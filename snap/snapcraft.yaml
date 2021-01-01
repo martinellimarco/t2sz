@@ -1,0 +1,20 @@
+name: t2sz
+base: core20
+version: '1.0.0'
+summary: Compress .tar archives to seekable .tar.zstd
+description: |
+  It compresses a tar archive with Zstandard keeping each file in a different frame.
+  This allows fast seeking and extraction of a single file without decompressing the whole archive.
+  The compressed archive can be uncompressed with any Zstandard tool, including zstd.
+  It can also be mounted with ratarmount.
+
+grade: stable
+confinement: classic
+
+parts:
+  t2sz:
+    plugin: cmake
+    source: .
+    build-packages:
+      - libzstd-dev
+
