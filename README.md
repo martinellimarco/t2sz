@@ -1,3 +1,7 @@
+[![Build Status](https://github.com/martinellimarco/t2sz/workflows/Test%20Build/badge.svg)](https://github.com/martinellimarco/t2sz/actions)
+[![License](https://img.shields.io/badge/license-GPLv3-green.svg)](https://github.com/martinellimarco/t2sz/blob/main/LICENSE)
+[![t2sz](https://snapcraft.io/t2sz/badge.svg)](https://snapcraft.io/t2sz)
+
 # t2sz
 Compress .tar archives to seekable .tar.zstd
 
@@ -116,3 +120,13 @@ The fastest choice is at `-s 512K -l 1` while at `-s 256M -l 22` we get the slow
 # License
 
 See LICENSE
+
+# Release
+
+Download the latest stable source code or .deb from the [release page](https://github.com/martinellimarco/t2sz/releases/latest)
+
+For your convenience you can install the latest release from the [snap store](https://snapcraft.io/t2sz) but beware that it is distributed in strict mode and it can access only your home directory.
+
+In the future it will be released in classic mode.
+
+[![Get it from the Snap Store](https://snapcraft.io/static/images/badges/en/snap-store-black.svg)](https://snapcraft.io/t2sz)
