@@ -9,7 +9,7 @@ description: |
   It can also be mounted with ratarmount.
 
 grade: stable
-confinement: classic
+confinement: strict
 
 parts:
   t2sz:
@@ -21,4 +21,6 @@ parts:
 apps:
   t2sz:
     command: usr/bin/t2sz
-
+    plugs:
+      - home
+      - removable-media

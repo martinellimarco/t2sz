@@ -123,10 +123,14 @@ See LICENSE
 
 # Release
 
-Download the latest stable source code or .deb from the [release page](https://github.com/martinellimarco/t2sz/releases/latest)
+Download the latest stable source code or .deb from the [release page](https://github.com/martinellimarco/t2sz/releases/latest). This is the raccomanded version.
 
-For your convenience you can install the latest release from the [snap store](https://snapcraft.io/t2sz) but beware that it is distributed in strict mode and it can access only your home directory.
+# Snap
 
-In the future it will be released in classic mode.
+For your convenience you can install the latest release from the [snap store](https://snapcraft.io/t2sz) but beware that it is distributed in strict mode and it can access only your home directory by default.
+
+You can add access to removable devices such as those stored in `/media` with `sudo snap connect t2sz:removable-media`.
+
+If you want to give it access to every file you can install it with `--devmode`.
 
 [![Get it from the Snap Store](https://snapcraft.io/static/images/badges/en/snap-store-black.svg)](https://snapcraft.io/t2sz)
