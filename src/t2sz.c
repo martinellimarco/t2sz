@@ -369,7 +369,6 @@ int main(int argc, char **argv){
 
     compressFile(ctx);
 
-    free(ctx->outFilename);
     free(ctx);
 
     return 0;
