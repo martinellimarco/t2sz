@@ -1,6 +1,6 @@
 name: t2sz
 base: core20
-version: '1.0.0'
+version: '1.0.1'
 summary: Compress .tar archives to seekable .tar.zstd
 description: |
   It compresses a tar archive with Zstandard keeping each file in a different frame.
