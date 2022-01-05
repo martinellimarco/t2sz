@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(t2sz VERSION 1.0.1 LANGUAGES C)
+project(t2sz VERSION 1.0.2 LANGUAGES C)
 
 add_definitions(-DVERSION="${PROJECT_VERSION}")
 
@@ -12,7 +12,7 @@ if (CMAKE_BUILD_TYPE STREQUAL Release)
     add_custom_command(TARGET t2sz POST_BUILD COMMAND ${CMAKE_STRIP} t2sz)
 endif ()
 
-install(TARGETS t2sz DESTINATION "/usr/bin/")
+install(TARGETS t2sz)
 
 #set(CPACK_SET_DESTDIR ON)
 #set(CPACK_GENERATOR "DEB;TGZ;RPM")
