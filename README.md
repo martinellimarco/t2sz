@@ -70,7 +70,7 @@ Options:
         -l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 22.
         -o FILENAME        Output file name.
         -s SIZE            Minimum size of an input block, in bytes.
-                           A block is composed by one or more whole files. A file is never truncated.
+                           A block is composed by one or more whole files. A file is never truncated unless -S is used.
                            If not specified one block will contain exactly one file, no matter the file size.
                            Each block is compressed to a zstd frame but if the archive has a lot of small files
                            having a file per block doesn't compress very well. With this you can set a trade off.
@@ -80,6 +80,12 @@ Options:
                                M/MiB = 1024*1024
                                kB/KB = 1000
                                MB = 1000*1000
+        -S SIZE            Maximum size of an input block, in bytes.
+                           Unlike -s this option may split big files in smaller chuncks.
+                           Remember that each block is compressed independently and a small value here will result in a bigger archive.
+                           -S can be used together with -s but MUST be greater or equal to it's value.
+                           If -S and -s are equal the input block will be of exactly that size, if there is enough input data.
+                           Like -s SIZE may be followed by one of the multiplicative suffixes described above.
         -v                 Verbose. List the elements in the tar archive and their size.
         -f                 Overwrite output without prompting.
         -h                 Print this help.

@@ -74,6 +74,7 @@ typedef struct {
     char *outFilename;
     uint8_t level;
     size_t minBlockSize;
+    size_t maxBlockSize;
     bool verbose;
 
     //input buffer
@@ -154,10 +155,19 @@ void compressFile(Context *ctx){
     uint8_t* readBuff = ctx->inBuff;
 
     bool lastChunk = false;
+    size_t residual = 0;
     while(!lastChunk) {
         size_t blockSize = 0;
         do{
-            if(ctx->inBuff[tarHeaderIdx]){//tar ends with null headers that we can skip
+            if(residual){
+                if(residual > ctx->maxBlockSize){
+                    blockSize = ctx->maxBlockSize;
+                    residual = residual - ctx->maxBlockSize;
+                }else{
+                    blockSize = residual;
+                    residual = 0;
+                }
+            }else if(ctx->inBuff[tarHeaderIdx]){//tar ends with null headers that we can skip
                 TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
                 if(isTarHeader(header)){
                     size_t size = strtol(header->size, NULL, 8);
@@ -166,6 +176,11 @@ void compressFile(Context *ctx){
 
                     tarHeaderIdx += toNextHeader;
                     blockSize += toNextHeader;
+                    
+                    if(ctx->maxBlockSize && blockSize > ctx->maxBlockSize){
+                        residual = blockSize - ctx->maxBlockSize;
+                        blockSize = ctx->maxBlockSize;
+                    }
 
                     if(ctx->verbose){
                         fprintf(stderr, "+ %s (%ld)\n", header->name, size);
@@ -243,7 +258,7 @@ void usage(const char *name, const char *str){
 
     fprintf(stderr,
             "t2sz: tar 2 seekable zstd.\n"
-            "It will compress a tar archive with Zstandard keeping each file in a different frame, unless `-s` is used.\n"
+            "It will compress a tar archive with Zstandard keeping each file in a different frame, unless -s or -S is used.\n"
             "This allows fast seeking and extraction of a single file without decompressing the whole archive.\n"
             "The compressed archive can be uncompressed with any Zstandard tool, including zstd.\n"
             "\nTo take advantage of seeking see the following projects:\n"
@@ -262,7 +277,7 @@ void usage(const char *name, const char *str){
             "\t-l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 22.\n"
             "\t-o FILENAME        Output file name.\n"
             "\t-s SIZE            Minimum size of an input block, in bytes.\n"
-            "\t                   A block is composed by one or more whole files. A file is never truncated.\n"
+            "\t                   A block is composed by one or more whole files. A file is never truncated unless -S is used.\n"
             "\t                   If not specified one block will contain exactly one file, no matter the file size.\n"
             "\t                   Each block is compressed to a zstd frame but if the archive has a lot of small files\n"
             "\t                   having a file per block doesn't compress very well. With this you can set a trade off.\n"
@@ -272,6 +287,12 @@ void usage(const char *name, const char *str){
             "\t                       M/MiB = 1024*1024\n"
             "\t                       kB/KB = 1000\n"
             "\t                       MB = 1000*1000\n"
+            "\t-S SIZE            Maximum size of an input block, in bytes.\n"
+            "\t                   Unlike -s this option may split big files in smaller chuncks.\n"
+            "\t                   Remember that each block is compressed independently and a small value here will result in a bigger archive.\n"
+            "\t                   -S can be used together with -s but MUST be greater or equal to it's value.\n"
+            "\t                   If -S and -s are equal the input block will be of exactly that size, if there is enough input data.\n"
+            "\t                   Like -s SIZE may be followed by one of the multiplicative suffixes described above.\n"
             "\t-v                 Verbose. List the elements in the tar archive and their size.\n"
             "\t-f                 Overwrite output without prompting.\n"
             "\t-h                 Print this help.\n"
@@ -289,13 +310,27 @@ bool strEndsWith(const char * str, const char * suf){
     return (strLen >= sufLen) && (0 == strcmp(str + (strLen - sufLen), suf));
 }
 
+size_t decodeMultiplier(char *arg){
+    size_t multiplier = 1;
+    if(strEndsWith(arg, "k") || strEndsWith(arg, "K") || strEndsWith(arg, "KiB")){
+        multiplier = 1024;
+    }else if(strEndsWith(arg, "M") || strEndsWith(arg, "MiB")){
+        multiplier = 1024*1024;
+    }else if(strEndsWith(arg, "kB") || strEndsWith(arg, "KB")){
+        multiplier = 1000;
+    }else if(strEndsWith(arg, "MB")){
+        multiplier = 1000*1000;
+    }
+    return multiplier;
+}
+
 int main(int argc, char **argv){
     Context *ctx = newContext();
     bool overwrite = false;
     char* executable = argv[0];
 
     int ch;
-    while ((ch = getopt(argc, argv, "l:o:s:Vfvh")) != -1) {
+    while ((ch = getopt(argc, argv, "l:o:s:S:Vfvh")) != -1) {
         switch (ch) {
             case 'l':
                 ctx->level = atoi(optarg);
@@ -307,18 +342,17 @@ int main(int argc, char **argv){
                 ctx->outFilename = optarg;
                 break;
             case 's': {
-                size_t multiplier = 1;
-                if(strEndsWith(optarg, "k") || strEndsWith(optarg, "K") || strEndsWith(optarg, "KiB")){
-                    multiplier = 1024;
-                }else if(strEndsWith(optarg, "M") || strEndsWith(optarg, "MiB")){
-                    multiplier = 1024*1024;
-                }else if(strEndsWith(optarg, "kB") || strEndsWith(optarg, "KB")){
-                    multiplier = 1000;
-                }else if(strEndsWith(optarg, "MB")){
-                    multiplier = 1000*1000;
-                }
+                size_t multiplier = decodeMultiplier(optarg);
                 ctx->minBlockSize = atoi(optarg) * multiplier;
                 if(ctx->minBlockSize < multiplier){
+                    usage(executable, "ERROR: Invalid block size");
+                }
+                break;
+            }
+            case 'S': {
+                size_t multiplier = decodeMultiplier(optarg);
+                ctx->maxBlockSize = atoi(optarg) * multiplier;
+                if(ctx->maxBlockSize < multiplier){
                     usage(executable, "ERROR: Invalid block size");
                 }
                 break;
@@ -345,6 +379,10 @@ int main(int argc, char **argv){
         usage(executable, "Not enough arguments");
     }else if(argc > 1){
         usage(executable, "Too many arguments");
+    }
+    
+    if(ctx->maxBlockSize && ctx->maxBlockSize < ctx->minBlockSize){
+        usage(executable, "The maximum block size can't be smaller than the minimum one");
     }
 
     ctx->inFilename = argv[0];
