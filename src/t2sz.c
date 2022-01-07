@@ -76,6 +76,7 @@ typedef struct {
     size_t minBlockSize;
     size_t maxBlockSize;
     bool verbose;
+    bool rawMode; //non-tar mode
 
     //input buffer
     size_t inBuffSize;
@@ -93,7 +94,7 @@ typedef struct {
 Context* newContext(){
     Context* ctx = malloc(sizeof(Context));
     memset(ctx, 0, sizeof(Context));
-    ctx->level = 22;
+    ctx->level = 3;
     return ctx;
 }
 
@@ -158,46 +159,59 @@ void compressFile(Context *ctx){
     size_t residual = 0;
     while(!lastChunk) {
         size_t blockSize = 0;
-        do{
-            if(residual){
-                if(residual > ctx->maxBlockSize){
-                    blockSize = ctx->maxBlockSize;
-                    residual = residual - ctx->maxBlockSize;
-                }else{
-                    blockSize = residual;
-                    residual = 0;
-                }
-            }else if(ctx->inBuff[tarHeaderIdx]){//tar ends with null headers that we can skip
-                TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
-                if(isTarHeader(header)){
-                    size_t size = strtol(header->size, NULL, 8);
-
-                    size_t toNextHeader = (size_t)(ceil((float)size / 512.0) * 512) + 512;
-
-                    tarHeaderIdx += toNextHeader;
-                    blockSize += toNextHeader;
-                    
-                    if(ctx->maxBlockSize && blockSize > ctx->maxBlockSize){
-                        residual = blockSize - ctx->maxBlockSize;
-                        blockSize = ctx->maxBlockSize;
-                    }
-
-                    if(ctx->verbose){
-                        fprintf(stderr, "+ %s (%ld)\n", header->name, size);
-                    }
-                }else{
-                    fprintf(stderr, "ERROR: Invalid tar header\n");
-                    exit(-1);
+        if(ctx->rawMode){
+            if(ctx->minBlockSize){
+                blockSize = ctx->minBlockSize;
+                if(readBuff+blockSize > ctx->inBuff+ctx->inBuffSize){
+                    blockSize = ctx->inBuff+ctx->inBuffSize - readBuff;
+                    lastChunk = true;
                 }
             }else{
-                if(ctx->verbose){
-                    fprintf(stderr, "+ <null>\n");
-                }
-                tarHeaderIdx+=512;
-                blockSize += 512;
+                blockSize = ctx->inBuffSize;
+                lastChunk = true;
             }
-            lastChunk = tarHeaderIdx >= ctx->inBuffSize;
-        }while(blockSize < ctx->minBlockSize && !lastChunk);
+        }else{
+            do{
+                if(residual){
+                    if(residual > ctx->maxBlockSize){
+                        blockSize = ctx->maxBlockSize;
+                        residual = residual - ctx->maxBlockSize;
+                    }else{
+                        blockSize = residual;
+                        residual = 0;
+                    }
+                }else if(ctx->inBuff[tarHeaderIdx]){//tar ends with null headers that we can skip
+                    TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
+                    if(isTarHeader(header)){
+                        size_t size = strtol(header->size, NULL, 8);
+
+                        size_t toNextHeader = (size_t)(ceil((float)size / 512.0) * 512) + 512;
+
+                        tarHeaderIdx += toNextHeader;
+                        blockSize += toNextHeader;
+                        
+                        if(ctx->maxBlockSize && blockSize > ctx->maxBlockSize){
+                            residual = blockSize - ctx->maxBlockSize;
+                            blockSize = ctx->maxBlockSize;
+                        }
+
+                        if(ctx->verbose){
+                            fprintf(stderr, "+ %s (%ld)\n", header->name, size);
+                        }
+                    }else{
+                        fprintf(stderr, "ERROR: Invalid tar header. If this is not a tar archive use raw mode (-r)\n");
+                        exit(-1);
+                    }
+                }else{
+                    if(ctx->verbose){
+                        fprintf(stderr, "+ <null>\n");
+                    }
+                    tarHeaderIdx+=512;
+                    blockSize += 512;
+                }
+                lastChunk = tarHeaderIdx >= ctx->inBuffSize;
+            }while(blockSize < ctx->minBlockSize && !lastChunk);
+        }
 
         ZSTD_CCtx_setPledgedSrcSize(ctx->cctx, blockSize);
         if(ctx->verbose){
@@ -225,6 +239,8 @@ void compressFile(Context *ctx){
 
         readBuff += blockSize;
     }
+    
+    //TODO add a seektable skippable frame following the seekable format specification
 
     ZSTD_freeCCtx(ctx->cctx);
     fclose(ctx->outFile);
@@ -258,7 +274,11 @@ void usage(const char *name, const char *str){
 
     fprintf(stderr,
             "t2sz: tar 2 seekable zstd.\n"
-            "It will compress a tar archive with Zstandard keeping each file in a different frame, unless -s or -S is used.\n"
+            "It allows to compress a file or a tar archive with Zstandard splitting the file into multiple frames.\n"
+            "It has 2 mode of operation. Tar archive mode and raw mode.\n"
+            "By default it runs in tar archive mode for files ending with .tar, unless -r is specified.\n"
+            "For all other files it runs in raw mode.\n"
+            "In tar archive mode it compress the archive keeping each file in a different frame, unless -s or -S is used.\n"
             "This allows fast seeking and extraction of a single file without decompressing the whole archive.\n"
             "The compressed archive can be uncompressed with any Zstandard tool, including zstd.\n"
             "\nTo take advantage of seeking see the following projects:\n"
@@ -269,30 +289,35 @@ void usage(const char *name, const char *str){
             "Usage: %1$s [OPTIONS...] [TAR ARCHIVE]\n"
             "\n"
             "Examples:\n"
+            "\t%1$s any.file -s 10M                        Compress any.file to any.file.zst, each frame will be of 10M\n"
             "\t%1$s archive.tar                            Compress archive.tar to archive.tar.zst\n"
             "\t%1$s archive.tar -o output.tar.zst          Compress archive.tar to output.tar.zst\n"
             "\t%1$s archive.tar -o /dev/stdout             Compress archive.tar to standard output\n"
             "\n"
             "Options:\n"
-            "\t-l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 22.\n"
+            "\t-l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 3.\n"
             "\t-o FILENAME        Output file name.\n"
-            "\t-s SIZE            Minimum size of an input block, in bytes.\n"
-            "\t                   A block is composed by one or more whole files. A file is never truncated unless -S is used.\n"
-            "\t                   If not specified one block will contain exactly one file, no matter the file size.\n"
-            "\t                   Each block is compressed to a zstd frame but if the archive has a lot of small files\n"
-            "\t                   having a file per block doesn't compress very well. With this you can set a trade off.\n"
+            "\t-s SIZE            In raw mode: the exact size of each input block, except the last one.\n"
+            "\t                   In tar mode: the minimum size of an input block, in bytes.\n"
+            "\t                                A block is composed by one or more whole files.\n"
+            "\t                                A file is never truncated unless -S is used.\n"
+            "\t                                If not specified one block will contain exactly one file, no matter the file size.\n"
+            "\t                                Each block is compressed to a zstd frame but if the archive has a lot of small files\n"
+            "\t                                having a file per block doesn't compress very well. With this you can set a trade off.\n"
             "\t                   The greater is SIZE the smaller will be the archive at the expense of the seek speed.\n"
             "\t                   SIZE may be followed by the following multiplicative suffixes:\n"
             "\t                       k/K/KiB = 1024\n"
             "\t                       M/MiB = 1024*1024\n"
             "\t                       kB/KB = 1000\n"
             "\t                       MB = 1000*1000\n"
-            "\t-S SIZE            Maximum size of an input block, in bytes.\n"
+            "\t-S SIZE            In raw mode: it is ignored.\n"
+            "\t                   In tar mode: the maximum size of an input block, in bytes.\n"
             "\t                   Unlike -s this option may split big files in smaller chuncks.\n"
             "\t                   Remember that each block is compressed independently and a small value here will result in a bigger archive.\n"
             "\t                   -S can be used together with -s but MUST be greater or equal to it's value.\n"
             "\t                   If -S and -s are equal the input block will be of exactly that size, if there is enough input data.\n"
             "\t                   Like -s SIZE may be followed by one of the multiplicative suffixes described above.\n"
+            "\t-r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special treatment.\n"
             "\t-v                 Verbose. List the elements in the tar archive and their size.\n"
             "\t-f                 Overwrite output without prompting.\n"
             "\t-h                 Print this help.\n"
@@ -330,7 +355,7 @@ int main(int argc, char **argv){
     char* executable = argv[0];
 
     int ch;
-    while ((ch = getopt(argc, argv, "l:o:s:S:Vfvh")) != -1) {
+    while ((ch = getopt(argc, argv, "l:o:s:S:rVfvh")) != -1) {
         switch (ch) {
             case 'l':
                 ctx->level = atoi(optarg);
@@ -357,6 +382,9 @@ int main(int argc, char **argv){
                 }
                 break;
             }
+            case 'r':
+                ctx->rawMode = true;
+                break;
             case 'v':
                 ctx->verbose = true;
                 break;
@@ -386,6 +414,10 @@ int main(int argc, char **argv){
     }
 
     ctx->inFilename = argv[0];
+
+    if(!ctx->rawMode){
+        ctx->rawMode = !strEndsWith(ctx->inFilename, "tar");
+    }
 
     if(access(ctx->inFilename, F_OK ) != 0){
         fprintf(stderr, "%s: File not found\n", ctx->inFilename);

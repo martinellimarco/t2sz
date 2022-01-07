@@ -3,15 +3,23 @@
 [![t2sz](https://snapcraft.io/t2sz/badge.svg)](https://snapcraft.io/t2sz)
 
 # t2sz
-Compress .tar archives to seekable .tar.zstd
+It allows to compress a file or a tar archive with [Zstandard](https://github.com/facebook/zstd) splitting the file into multiple frames.
 
-It compresses a tar archive with [Zstandard](https://github.com/facebook/zstd) keeping each file in a different frame, unless `-s` is used.
+It has 2 mode of operation. Tar archive mode and raw mode.
+
+By default it runs in tar archive mode for files ending with `.tar`, unless `-r` is specified.
+
+For all other files it runs in raw mode.
+
+In tar archive mode it compress the archive keeping each file in a different frame, unless `-s` or `-S` is used.
 
 This allows fast seeking and extraction of a single file without decompressing the whole archive.
 
-When `-s SIZE` is used and a file is added, if the size of the file is less than `SIZE` then another one will be added in the same block, and so on until the sum of the sizes of all files packed together is at least `SIZE`.
+When `-s SIZE` is used in tar mode and a file is added, if the size of the file is less than `SIZE` then another one will be added in the same block, and so on until the sum of the sizes of all files packed together is at least `SIZE`. A file will be never truncated as `SIZE` is just a minimum value.
 
-A file will be never truncated as `SIZE` is just a minimum value.
+When `-s SIZE` is used in raw mode then it defines exactly the input block size. If there isn't enough input data the block will be smaller.
+
+When `-S SIZE` is used files bigger than `SIZE` will be splitted in blocks of `SIZE` length. It is available only in tar mode.
 
 A single block of one or more files is compressed into a single Zstandard frame. If the files in the same block are correlatable the compression ratio will be higher.
 
@@ -21,6 +29,7 @@ To take advantage of seeking see the following projects:
 - C/C++ library:  [libzstd-seek](https://github.com/martinellimarco/libzstd-seek)
 - Python library: [indexed_zstd](https://github.com/martinellimarco/indexed_zstd)
 - FUSE mount:     [ratarmount](https://github.com/mxmlnkn/ratarmount)
+
 
 # Build
 
@@ -59,33 +68,38 @@ sudo dpkg -i t2sz*.deb
 # Usage
 
 ```commandline
-Usage: t2sz [OPTIONS...] [TAR ARCHIVE]
+Usage: ./t2sz [OPTIONS...] [TAR ARCHIVE]
 
 Examples:
-        t2sz archive.tar                            Compress archive.tar to archive.tar.zst
-        t2sz archive.tar -o output.tar.zst          Compress archive.tar to output.tar.zst
-        t2sz archive.tar -o /dev/stdout             Compress archive.tar to standard output
+        ./t2sz any.file -s 10M                        Compress any.file to any.file.zst, each frame will be of 10M
+        ./t2sz archive.tar                            Compress archive.tar to archive.tar.zst
+        ./t2sz archive.tar -o output.tar.zst          Compress archive.tar to output.tar.zst
+        ./t2sz archive.tar -o /dev/stdout             Compress archive.tar to standard output
 
 Options:
-        -l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 22.
+        -l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 3.
         -o FILENAME        Output file name.
-        -s SIZE            Minimum size of an input block, in bytes.
-                           A block is composed by one or more whole files. A file is never truncated unless -S is used.
-                           If not specified one block will contain exactly one file, no matter the file size.
-                           Each block is compressed to a zstd frame but if the archive has a lot of small files
-                           having a file per block doesn't compress very well. With this you can set a trade off.
+        -s SIZE            In raw mode: the exact size of each input block, except the last one.
+                           In tar mode: the minimum size of an input block, in bytes.
+                                        A block is composed by one or more whole files.
+                                        A file is never truncated unless -S is used.
+                                        If not specified one block will contain exactly one file, no matter the file size.
+                                        Each block is compressed to a zstd frame but if the archive has a lot of small files
+                                        having a file per block doesn't compress very well. With this you can set a trade off.
                            The greater is SIZE the smaller will be the archive at the expense of the seek speed.
                            SIZE may be followed by the following multiplicative suffixes:
                                k/K/KiB = 1024
                                M/MiB = 1024*1024
                                kB/KB = 1000
                                MB = 1000*1000
-        -S SIZE            Maximum size of an input block, in bytes.
+        -S SIZE            In raw mode: it is ignored.
+                           In tar mode: the maximum size of an input block, in bytes.
                            Unlike -s this option may split big files in smaller chuncks.
                            Remember that each block is compressed independently and a small value here will result in a bigger archive.
                            -S can be used together with -s but MUST be greater or equal to it's value.
                            If -S and -s are equal the input block will be of exactly that size, if there is enough input data.
                            Like -s SIZE may be followed by one of the multiplicative suffixes described above.
+        -r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special treatment.
         -v                 Verbose. List the elements in the tar archive and their size.
         -f                 Overwrite output without prompting.
         -h                 Print this help.
