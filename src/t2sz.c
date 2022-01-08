@@ -77,6 +77,7 @@ typedef struct {
     size_t maxBlockSize;
     bool verbose;
     bool rawMode; //non-tar mode
+    uint32_t workers;
 
     //input buffer
     size_t inBuffSize;
@@ -142,6 +143,13 @@ void prepareCctx(Context *ctx){
     if(ZSTD_isError(err)){
         fprintf(stderr, "ERROR: Cannot set checksum flag: %s\n", ZSTD_getErrorName(err));
         exit(1);
+    }
+
+    err = ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, ctx->workers);
+    if(ZSTD_isError(err)){
+        fprintf(stderr, "ERROR: Multi-thread is supported only with libzstd >= 1.5.0 or on older versions compiled with ZSTD_MULTITHREAD. Reverting to single-thread.\n");
+        ctx->workers = 0;
+        ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, ctx->workers);
     }
 }
 
@@ -317,6 +325,8 @@ void usage(const char *name, const char *str){
             "\t                   -S can be used together with -s but MUST be greater or equal to it's value.\n"
             "\t                   If -S and -s are equal the input block will be of exactly that size, if there is enough input data.\n"
             "\t                   Like -s SIZE may be followed by one of the multiplicative suffixes described above.\n"
+            "\t-T [0..N]          Number of thread to spawn. It improves compression speed but cost more memory. Default is 0.\n"
+            "\t                   It requires libzstd >= 1.5.0 or an older version compiler with ZSTD_MULTITHREAD.\n"
             "\t-r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special treatment.\n"
             "\t-v                 Verbose. List the elements in the tar archive and their size.\n"
             "\t-f                 Overwrite output without prompting.\n"
@@ -355,7 +365,7 @@ int main(int argc, char **argv){
     char* executable = argv[0];
 
     int ch;
-    while ((ch = getopt(argc, argv, "l:o:s:S:rVfvh")) != -1) {
+    while ((ch = getopt(argc, argv, "l:o:s:S:T:rVfvh")) != -1) {
         switch (ch) {
             case 'l':
                 ctx->level = atoi(optarg);
@@ -382,6 +392,12 @@ int main(int argc, char **argv){
                 }
                 break;
             }
+            case 'T':
+                ctx->workers = atoi(optarg);
+                if(ctx->level<0){
+                    usage(executable, "ERROR: Invalid number of threads. Must be greater than 0.");
+                }
+                break;
             case 'r':
                 ctx->rawMode = true;
                 break;

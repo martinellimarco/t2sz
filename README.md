@@ -99,6 +99,8 @@ Options:
                            -S can be used together with -s but MUST be greater or equal to it's value.
                            If -S and -s are equal the input block will be of exactly that size, if there is enough input data.
                            Like -s SIZE may be followed by one of the multiplicative suffixes described above.
+        -T [0..N]          Number of thread to spawn. It improves compression speed but cost more memory. Default is 0.
+                           It requires libzstd >= 1.5.0 or an older version compiler with ZSTD_MULTITHREAD.
         -r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special treatment.
         -v                 Verbose. List the elements in the tar archive and their size.
         -f                 Overwrite output without prompting.
