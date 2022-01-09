@@ -5,7 +5,7 @@
 # t2sz
 It allows to compress a file or a tar archive with [Zstandard](https://github.com/facebook/zstd) splitting the file into multiple frames.
 
-It has 2 mode of operation. Tar archive mode and raw mode.
+It operates in two modes. Tar archive mode and raw mode.
 
 By default it runs in tar archive mode for files ending with `.tar`, unless `-r` is specified.
 
@@ -15,15 +15,13 @@ In tar archive mode it compress the archive keeping each file in a different fra
 
 This allows fast seeking and extraction of a single file without decompressing the whole archive.
 
-When `-s SIZE` is used in tar mode and a file is added, if the size of the file is less than `SIZE` then another one will be added in the same block, and so on until the sum of the sizes of all files packed together is at least `SIZE`. A file will be never truncated as `SIZE` is just a minimum value.
+When `-s SIZE` is used in tar mode, if the size of the file being compressed into a block is less than `SIZE` then another one will be added in the same block, and so on until the sum of the sizes of all files packed together is at least `SIZE`. A file will be never spltted as `SIZE` is just a minimum value.
 
-When `-s SIZE` is used in raw mode then it defines exactly the input block size. If there isn't enough input data the block will be smaller.
+When `-s SIZE` is used in raw mode then it defines exactly the input block size and bigger inputs will be split in blocks of this size accordingly. If there isn't enough input data the last block will be smaller.
 
-When `-S SIZE` is used files bigger than `SIZE` will be splitted in blocks of `SIZE` length. It is available only in tar mode.
+When `-S SIZE` is used, files bigger than `SIZE` will be splitted in blocks of `SIZE` length. It is available only in tar mode and ignored in raw mode.
 
-A single block of one or more files is compressed into a single Zstandard frame. If the files in the same block are correlatable the compression ratio will be higher.
-
-The compressed archive can be uncompressed with any Zstandard tool, including `zstd`.
+The compressed archive can be decompressed with any Zstandard tool, including `zstd`.
 
 To take advantage of seeking see the following projects:
 - C/C++ library:  [libzstd-seek](https://github.com/martinellimarco/libzstd-seek)
@@ -68,13 +66,13 @@ sudo dpkg -i t2sz*.deb
 # Usage
 
 ```commandline
-Usage: ./t2sz [OPTIONS...] [TAR ARCHIVE]
+Usage: t2sz [OPTIONS...] [TAR ARCHIVE]
 
 Examples:
-        ./t2sz any.file -s 10M                        Compress any.file to any.file.zst, each frame will be of 10M
-        ./t2sz archive.tar                            Compress archive.tar to archive.tar.zst
-        ./t2sz archive.tar -o output.tar.zst          Compress archive.tar to output.tar.zst
-        ./t2sz archive.tar -o /dev/stdout             Compress archive.tar to standard output
+        t2sz any.file -s 10M                        Compress any.file to any.file.zst, each frame will be of 10M
+        t2sz archive.tar                            Compress archive.tar to archive.tar.zst
+        t2sz archive.tar -o output.tar.zst          Compress archive.tar to output.tar.zst
+        t2sz archive.tar -o /dev/stdout             Compress archive.tar to standard output
 
 Options:
         -l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 3.
@@ -112,36 +110,6 @@ Options:
         -V                 Print the version.
 
 ```
-
-# About -s and -l
-
-One may wonder what are the best choices for minimum block size `-s` and compression level `-l`.
-
-The real answer is that it depends on the kind of data you are working with. In short, do your own math and feel free to report your results.
-
-If you are working with big files (hundreds of MiB) then you will not have many benefits in terms of seeking time if you use `-s`, but you should increase your compression level to get smaller archives.
-
-On the other hand, if you have thousands of small files (few MiB or less) that usually compress well and are correlated you may take advantage of both `-s` and `-l`.
-
-What follows is a test I made with a dataset of ~100.000 binary files less than 4MiB in size. The exact numbers are not important.
-
-The first table shows the compression ratio of each combination of `-s` (min block size) and '-l' (level).
-
-Intuitively at `-s 1K -l 1` the resulting archive is 57.38% of the size of the uncompressed .tar archive.
-
-At the same time `-s 256M -l 22` gives the best results in term of compression ration, with a generated archive that is only 33.47% of the original.
-
-Obviously seeking in a block of 256M is not that quick: a safer choice in this particular case is something around `-s 32M`.
-
-The second table shows the time it took to compress each archive, divided by the minimum time.
-
-The fastest choice is at `-s 512K -l 1` while at `-s 256M -l 22` we get the slowest one, that takes 69.48 times more.
-
-
-![compression ratio](doc/compression-ratio.png)
-
-![speed ratio](doc/speed-ratio.png)
-
 
 # License
 
