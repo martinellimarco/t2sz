@@ -187,7 +187,7 @@ void seekTableAdd(Context* ctx, uint32_t compressedSize, uint32_t decompressedSi
         return;
     }
 
-    if(decompressedSize >= 0x8000000U){
+    if(decompressedSize >= 0x80000000U){
         ctx->skipSeekTable = true;
         fprintf(stderr, "Warning: Input frame too big. Unable to generate the seek table.\n");
         return;
@@ -397,6 +397,7 @@ void usage(const char *name, const char *str){
 
     fprintf(stderr,
             "t2sz: tar 2 seekable zstd.\n"
+            "Despite the name it works with any file, but tar archives are special.\n"
             "It allows to compress any file or a tar archive with Zstandard splitting the file into multiple frames.\n"
             "It has 2 mode of operation. Tar archive mode and raw mode.\n"
             "By default it runs in tar archive mode for files ending with .tar, unless -r is specified.\n"
@@ -430,9 +431,11 @@ void usage(const char *name, const char *str){
             "\t                   The greater is SIZE the smaller will be the archive at the expense of the seek speed.\n"
             "\t                   SIZE may be followed by the following multiplicative suffixes:\n"
             "\t                       k/K/KiB = 1024\n"
-            "\t                       M/MiB = 1024*1024\n"
+            "\t                       M/MiB = 1024^2\n"
+            "\t                       G/GiB = 1024^3\n"
             "\t                       kB/KB = 1000\n"
-            "\t                       MB = 1000*1000\n"
+            "\t                       MB = 1000^2\n"
+            "\t                       GB = 1000^3\n"
             "\t-S SIZE            In raw mode: it is ignored.\n"
             "\t                   In tar mode: the maximum size of an input block, in bytes.\n"
             "\t                   Unlike -s this option may split big files in smaller chuncks.\n"
@@ -468,10 +471,14 @@ size_t decodeMultiplier(char *arg){
         multiplier = 1024;
     }else if(strEndsWith(arg, "M") || strEndsWith(arg, "MiB")){
         multiplier = 1024*1024;
+    }else if(strEndsWith(arg, "G") || strEndsWith(arg, "GiB")){
+        multiplier = 1024*1024*1024;
     }else if(strEndsWith(arg, "kB") || strEndsWith(arg, "KB")){
         multiplier = 1000;
     }else if(strEndsWith(arg, "MB")){
         multiplier = 1000*1000;
+    }else if(strEndsWith(arg, "GB")){
+        multiplier = 1000*1000*1000;
     }
     return multiplier;
 }

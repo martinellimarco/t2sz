@@ -89,9 +89,11 @@ Options:
                            The greater is SIZE the smaller will be the archive at the expense of the seek speed.
                            SIZE may be followed by the following multiplicative suffixes:
                                k/K/KiB = 1024
-                               M/MiB = 1024*1024
+                               M/MiB = 1024^2
+                               G/GiB = 1024^3
                                kB/KB = 1000
-                               MB = 1000*1000
+                               MB = 1000^2
+                               GB = 1000^3
         -S SIZE            In raw mode: it is ignored.
                            In tar mode: the maximum size of an input block, in bytes.
                            Unlike -s this option may split big files in smaller chuncks.
