@@ -255,11 +255,13 @@ void prepareCctx(Context *ctx){
         exit(1);
     }
 
-    err = ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, ctx->workers);
-    if(ZSTD_isError(err)){
-        fprintf(stderr, "ERROR: Multi-thread is supported only with libzstd >= 1.5.0 or on older versions compiled with ZSTD_MULTITHREAD. Reverting to single-thread.\n");
-        ctx->workers = 0;
-        ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, ctx->workers);
+    if(ctx->workers){
+        err = ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, ctx->workers);
+        if(ZSTD_isError(err)){
+            fprintf(stderr, "ERROR: Multi-thread is supported only with libzstd >= 1.5.0 or on older versions compiled with ZSTD_MULTITHREAD. Reverting to single-thread.\n");
+            ctx->workers = 0;
+            ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, ctx->workers);
+        }
     }
 }
 
@@ -443,7 +445,7 @@ void usage(const char *name, const char *str){
             "\t                   -S can be used together with -s but MUST be greater or equal to it's value.\n"
             "\t                   If -S and -s are equal the input block will be of exactly that size, if there is enough input data.\n"
             "\t                   Like -s SIZE may be followed by one of the multiplicative suffixes described above.\n"
-            "\t-T [0..N]          Number of thread to spawn. It improves compression speed but cost more memory. Default is 0 (sigle-thread).\n"
+            "\t-T [1..N]          Number of thread to spawn. It improves compression speed but cost more memory. Default is single thread.\n"
             "\t                   It requires libzstd >= 1.5.0 or an older version compiler with ZSTD_MULTITHREAD.\n"
             "\t                   If `-s` or `-S` are too small it is possible that a lower number of threads will be used.\n"
             "\t-r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special treatment.\n"
@@ -518,7 +520,7 @@ int main(int argc, char **argv){
             }
             case 'T':
                 ctx->workers = atoi(optarg);
-                if(ctx->level<0){
+                if(ctx->workers<1){
                     usage(executable, "ERROR: Invalid number of threads. Must be greater than 0.");
                 }
                 break;
