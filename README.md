@@ -103,6 +103,7 @@ Options:
                            It requires libzstd >= 1.5.0 or an older version compiler with ZSTD_MULTITHREAD.
                            If `-s` or `-S` are too small it is possible that a lower number of threads will be used.
         -r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special treatment.
+        -j                 Do not generate a seek table.
         -v                 Verbose. List the elements in the tar archive and their size.
         -f                 Overwrite output without prompting.
         -h                 Print this help.

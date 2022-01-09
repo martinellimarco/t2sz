@@ -22,7 +22,7 @@
 #include <sys/mman.h>
 #include <zstd.h>
 
-typedef struct {                /* byte offset */
+typedef struct __attribute__((__packed__)) { /* byte offset */
     char name[100];               /*   0 */
     char mode[8];                 /* 100 */
     char uid[8];                  /* 108 */
@@ -68,6 +68,14 @@ bool isTarHeader(TarHeader* header){
     return chksum == hdrChksum;
 }
 
+typedef struct SeekTableEntry SeekTableEntry;
+
+struct SeekTableEntry{
+    uint32_t compressedSize;
+    uint32_t decompressedSize;
+    SeekTableEntry* next;
+};
+
 typedef struct {
     //input parameters
     const char* inFilename;
@@ -90,7 +98,109 @@ typedef struct {
 
     //compression context
     ZSTD_CCtx* cctx;
+
+    //seek table
+    SeekTableEntry* seekTable;
+    uint32_t numberOfFrames;
+    bool skipSeekTable;
 } Context;
+
+bool isLittleEndian(){
+    volatile int x = 1;
+    return *(char*)(&x) == 1;
+}
+
+void writeLE32(void* dst, uint32_t data){
+    if(isLittleEndian()){
+        memcpy(dst, &data, sizeof(data));
+    }else{
+        uint32_t swap = ((data & 0xFF000000) >> 24) |
+                        ((data & 0x00FF0000) >> 8)  |
+                        ((data & 0x0000FF00) << 8)  |
+                        ((data & 0x000000FF) << 24);
+        memcpy(dst, &swap, sizeof(swap));
+    }
+}
+
+void writeSeekTable(Context *ctx){
+    uint8_t buf[4];
+    //Skippable_Magic_Number
+    writeLE32(buf, ZSTD_MAGIC_SKIPPABLE_START | 0xE);
+    fwrite(buf, 4, 1, ctx->outFile);
+    
+    //Frame_Size
+    writeLE32(buf, ctx->numberOfFrames*8 + 9);
+    fwrite(buf, 4, 1, ctx->outFile);
+        
+    if(ctx->verbose){
+        fprintf(stderr, "\n---- seek table ----\n");
+        fprintf(stderr, "decompressed\tcompressed\n");
+    }
+
+    //Seek_Table_Entries
+    for(SeekTableEntry* e = ctx->seekTable; e; e = e->next){
+        //Compressed_Size
+        writeLE32(buf, e->compressedSize);
+        fwrite(buf, 4, 1, ctx->outFile);
+
+        //Decompressed_Size
+        writeLE32(buf, e->decompressedSize);
+        fwrite(buf, 4, 1, ctx->outFile);
+        
+        if(ctx->verbose){
+            fprintf(stderr, "%u\t%u\n", e->decompressedSize, e->compressedSize);
+        }
+    }
+    
+    //Seek_Table_Footer
+    //Number_Of_Frames
+    writeLE32(buf, ctx->numberOfFrames);
+    fwrite(buf, 4, 1, ctx->outFile);
+    
+    //Seek_Table_Descriptor
+    buf[0] = 0;
+    fwrite(buf, 1, 1, ctx->outFile);
+    
+    //Seekable_Magic_Number
+    writeLE32(buf, 0x8F92EAB1);
+    fwrite(buf, 4, 1, ctx->outFile);
+}
+
+SeekTableEntry* newSeekTableEntry(uint32_t compressedSize, uint32_t decompressedSize){
+    SeekTableEntry* e = malloc(sizeof(SeekTableEntry));
+    memset(e, 0, sizeof(SeekTableEntry));
+    e->compressedSize = compressedSize;
+    e->decompressedSize = decompressedSize;
+    return e;
+}
+
+void seekTableAdd(Context* ctx, uint32_t compressedSize, uint32_t decompressedSize){
+    if(ctx->skipSeekTable){
+        return;
+    }
+
+    ctx->numberOfFrames++;
+
+    if(ctx->numberOfFrames >= 0x8000000U){
+        ctx->skipSeekTable = true;
+        fprintf(stderr, "Warning: Too many frames. Unable to generate the seek table.\n");
+        return;
+    }
+
+    if(decompressedSize >= 0x8000000U){
+        ctx->skipSeekTable = true;
+        fprintf(stderr, "Warning: Input frame too big. Unable to generate the seek table.\n");
+        return;
+    }
+
+    if(!ctx->seekTable){
+        ctx->seekTable = newSeekTableEntry(compressedSize, decompressedSize);
+    }else{
+        SeekTableEntry* e = ctx->seekTable;
+        for(; e->next; e = e->next){}
+        e->next = newSeekTableEntry(compressedSize, decompressedSize);
+    }
+}
 
 Context* newContext(){
     Context* ctx = malloc(sizeof(Context));
@@ -234,6 +344,7 @@ void compressFile(Context *ctx){
         ZSTD_inBuffer input = {readBuff, blockSize, 0 };
         size_t remaining;
         mode_t mode;
+        uint32_t compressedSize = 0;
         do {
             ZSTD_outBuffer output = {ctx->outBuff, ctx->outBuffSize, 0 };
             mode = input.pos < input.size ? ZSTD_e_continue : ZSTD_e_end;
@@ -242,13 +353,17 @@ void compressFile(Context *ctx){
                 fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(remaining));
                 exit(1);
             }
-            fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
+            compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
         } while (mode==ZSTD_e_continue || remaining>0);
 
+        seekTableAdd(ctx, compressedSize, blockSize);
+        
         readBuff += blockSize;
     }
-    
-    //TODO add a seektable skippable frame following the seekable format specification
+
+    if(!ctx->skipSeekTable){
+        writeSeekTable(ctx);
+    }
 
     ZSTD_freeCCtx(ctx->cctx);
     fclose(ctx->outFile);
@@ -282,7 +397,7 @@ void usage(const char *name, const char *str){
 
     fprintf(stderr,
             "t2sz: tar 2 seekable zstd.\n"
-            "It allows to compress a file or a tar archive with Zstandard splitting the file into multiple frames.\n"
+            "It allows to compress any file or a tar archive with Zstandard splitting the file into multiple frames.\n"
             "It has 2 mode of operation. Tar archive mode and raw mode.\n"
             "By default it runs in tar archive mode for files ending with .tar, unless -r is specified.\n"
             "For all other files it runs in raw mode.\n"
@@ -329,6 +444,7 @@ void usage(const char *name, const char *str){
             "\t                   It requires libzstd >= 1.5.0 or an older version compiler with ZSTD_MULTITHREAD.\n"
             "\t                   If `-s` or `-S` are too small it is possible that a lower number of threads will be used.\n"
             "\t-r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special treatment.\n"
+            "\t-j                 Do not generate a seek table."
             "\t-v                 Verbose. List the elements in the tar archive and their size.\n"
             "\t-f                 Overwrite output without prompting.\n"
             "\t-h                 Print this help.\n"
@@ -366,7 +482,7 @@ int main(int argc, char **argv){
     char* executable = argv[0];
 
     int ch;
-    while ((ch = getopt(argc, argv, "l:o:s:S:T:rVfvh")) != -1) {
+    while ((ch = getopt(argc, argv, "l:o:s:S:T:rjVfvh")) != -1) {
         switch (ch) {
             case 'l':
                 ctx->level = atoi(optarg);
@@ -401,6 +517,9 @@ int main(int argc, char **argv){
                 break;
             case 'r':
                 ctx->rawMode = true;
+                break;
+            case 'j':
+                ctx->skipSeekTable = true;
                 break;
             case 'v':
                 ctx->verbose = true;
