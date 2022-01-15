@@ -9,7 +9,7 @@ url="https://github.com/martinellimarco/t2sz"
 license=('GPL')
 depends=('zstd')
 makedepends=('git' 'cmake')
-source=(git+https://github.com/martinellimarco/t2sz)
+source=(${pkgname}-${pkgver}::git+https://github.com/martinellimarco/t2sz#tag=v${pkgver})
 provides=('t2sz')
 noextract=()
 sha256sums=('SKIP')
