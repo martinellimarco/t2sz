@@ -1,7 +1,7 @@
 [![Build Status](https://github.com/martinellimarco/t2sz/workflows/Test%20Build/badge.svg)](https://github.com/martinellimarco/t2sz/actions)
 [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](https://github.com/martinellimarco/t2sz/blob/main/LICENSE)
 [![t2sz](https://snapcraft.io/t2sz/badge.svg)](https://snapcraft.io/t2sz)
-[![AUR last modified](https://img.shields.io/aur/version/t2sz-git)](https://aur.archlinux.org/packages/t2sz-git/)
+[![AUR version](https://img.shields.io/aur/version/t2sz-git)](https://aur.archlinux.org/packages/t2sz-git/)
 
 # t2sz
 It compress a file into a seekable [zstd](https://github.com/facebook/zstd) splitting the file into multiple frames.
