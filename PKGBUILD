@@ -9,6 +9,7 @@ license=('GPL')
 depends=('zstd')
 makedepends=('git' 'cmake')
 source=(git+https://github.com/martinellimarco/t2sz)
+provides=('t2sz')
 noextract=()
 sha256sums=('SKIP')
 
