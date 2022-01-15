@@ -415,7 +415,7 @@ void usage(const char *name, const char *str){
             "Usage: %1$s [OPTIONS...] [TAR ARCHIVE]\n"
             "\n"
             "Examples:\n"
-            "\t%1$s any.file -s 10M                        Compress any.file to any.file.zst, each frame will be of 10M\n"
+            "\t%1$s any.file -s 10M                        Compress any.file to any.file.zst, each input block will be of 10M\n"
             "\t%1$s archive.tar                            Compress archive.tar to archive.tar.zst\n"
             "\t%1$s archive.tar -o output.tar.zst          Compress archive.tar to output.tar.zst\n"
             "\t%1$s archive.tar -o /dev/stdout             Compress archive.tar to standard output\n"

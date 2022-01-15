@@ -1,6 +1,6 @@
 name: t2sz
 base: core20
-version: '1.1.0'
+version: '1.1.1'
 summary: It compress any file into a seekable .zstd file
 description: |
   It compress a file into a seekable zstd splitting the file into multiple frames.

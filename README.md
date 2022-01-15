@@ -72,7 +72,7 @@ sudo dpkg -i t2sz*.deb
 Usage: t2sz [OPTIONS...] [TAR ARCHIVE]
 
 Examples:
-        t2sz any.file -s 10M                        Compress any.file to any.file.zst, each frame will be of 10M
+        t2sz any.file -s 10M                        Compress any.file to any.file.zst, each input block will be of 10M
         t2sz archive.tar                            Compress archive.tar to archive.tar.zst
         t2sz archive.tar -o output.tar.zst          Compress archive.tar to output.tar.zst
         t2sz archive.tar -o /dev/stdout             Compress archive.tar to standard output
