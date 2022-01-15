@@ -399,8 +399,8 @@ void usage(const char *name, const char *str){
 
     fprintf(stderr,
             "t2sz: tar 2 seekable zstd.\n"
-            "Despite the name it works with any file, but tar archives are special.\n"
-            "It allows to compress any file or a tar archive with Zstandard splitting the file into multiple frames.\n"
+            "It compress a file into a seekable zstd, splitting the file into multiple frames.\n"
+            "If the file is a tar archive it compress each file in the archive into an independent frame, hence the name.\n"
             "It operates in two modes. Tar archive mode and raw mode.\n"
             "By default it runs in tar archive mode for files ending with .tar, unless -r is specified.\n"
             "For all other files it runs in raw mode.\n"
@@ -448,7 +448,7 @@ void usage(const char *name, const char *str){
             "\t-T [1..N]          Number of thread to spawn. It improves compression speed but cost more memory. Default is single thread.\n"
             "\t                   It requires libzstd >= 1.5.0 or an older version compiler with ZSTD_MULTITHREAD.\n"
             "\t                   If `-s` or `-S` are too small it is possible that a lower number of threads will be used.\n"
-            "\t-r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special treatment.\n"
+            "\t-r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special handling.\n"
             "\t-j                 Do not generate a seek table.\n"
             "\t-v                 Verbose. List the elements in the tar archive and their size.\n"
             "\t-f                 Overwrite output without prompting.\n"
