@@ -1,6 +1,7 @@
 [![Build Status](https://github.com/martinellimarco/t2sz/workflows/Test%20Build/badge.svg)](https://github.com/martinellimarco/t2sz/actions)
 [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](https://github.com/martinellimarco/t2sz/blob/main/LICENSE)
 [![t2sz](https://snapcraft.io/t2sz/badge.svg)](https://snapcraft.io/t2sz)
+[![AUR last modified](https://img.shields.io/aur/version/t2sz-git)](https://aur.archlinux.org/packages/t2sz-git/)
 
 # t2sz
 It compress a file into a seekable [zstd](https://github.com/facebook/zstd) splitting the file into multiple frames.
@@ -119,9 +120,15 @@ See LICENSE
 
 # Release
 
+## Debian-based
+
 Download the latest stable source code or .deb from the [release page](https://github.com/martinellimarco/t2sz/releases/latest). This is the raccomanded version.
 
-# Snap
+## Arch-based
+
+Check out [t2sz-git](https://aur.archlinux.org/packages/t2sz-git/) on AUR or `pamac build t2sz-git`
+
+## Snap
 
 For your convenience you can install the latest release from the [snap store](https://snapcraft.io/t2sz) but beware that it is distributed in strict mode and it can access only your home directory by default.
 
