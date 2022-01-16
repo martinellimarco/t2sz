@@ -1,9 +1,9 @@
 #Maintainer: Marco Martinelli <marco+t2sz@13byte.com>
 
-pkgname=t2sz-git
+pkgname=t2sz
 pkgver=1.1.1
 pkgrel=1
-pkgdesc="t2sz compress a file into a seekable zstd. If the file is a tar archive it compress each file in the archive into an independent frame, hence the name: tar 2 seekable zstd."
+pkgdesc="It compress a file into a seekable zstd. If the file is a tar archive it compress each file in the archive into an independent frame, hence the name: tar 2 seekable zstd."
 arch=('i686' 'x86_64' 'armv7h' 'aarch64')
 url="https://github.com/martinellimarco/t2sz"
 license=('GPL3')
@@ -15,7 +15,7 @@ noextract=()
 sha256sums=('SKIP')
 
 build(){
-  cd "$srcdir/${pkgname%-git}"
+  cd "$srcdir/$pkgname"
   [[ -d build ]] && rm -r build
   mkdir build
   cd build
@@ -24,6 +24,6 @@ build(){
 }
 
 package(){
-  cd "$srcdir/${pkgname%-git}/build"
+  cd "$srcdir/$pkgname/build"
   make DESTDIR="$pkgdir/" install
 }
