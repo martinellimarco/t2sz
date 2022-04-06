@@ -126,7 +126,7 @@ Download the latest stable source code or .deb from the [release page](https://g
 
 ## Arch-based
 
-Check out [t2sz-git](https://aur.archlinux.org/packages/t2sz-git/) on AUR or `pamac build t2sz-git`
+Check out [t2sz](https://aur.archlinux.org/packages/t2sz/) on AUR or `pamac build t2sz`
 
 ## Snap
 
