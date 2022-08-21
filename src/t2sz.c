@@ -174,7 +174,7 @@ SeekTableEntry* newSeekTableEntry(uint32_t compressedSize, uint32_t decompressed
     return e;
 }
 
-void seekTableAdd(Context* ctx, uint32_t compressedSize, uint32_t decompressedSize){
+void seekTableAdd(Context* ctx, uint64_t compressedSize, uint64_t decompressedSize){
     if(ctx->skipSeekTable){
         return;
     }
@@ -346,7 +346,7 @@ void compressFile(Context *ctx){
         ZSTD_inBuffer input = {readBuff, blockSize, 0 };
         size_t remaining;
         mode_t mode;
-        uint32_t compressedSize = 0;
+        uint64_t compressedSize = 0;
         do {
             ZSTD_outBuffer output = {ctx->outBuff, ctx->outBuffSize, 0 };
             mode = input.pos < input.size ? ZSTD_e_continue : ZSTD_e_end;
