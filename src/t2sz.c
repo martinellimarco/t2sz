@@ -65,7 +65,12 @@ bool isTarHeader(TarHeader* header){
     uint32_t hdrChksum = strtol(buf, NULL, 8);
     free(buf);
 
-    return chksum == hdrChksum;
+    if(chksum != hdrChksum){
+        fprintf(stderr, "ERROR: Mismatching checksum. Expected 0x%08x but found 0x%08x.\n", chksum, hdrChksum);
+        return false;
+    }
+
+    return true;
 }
 
 typedef struct SeekTableEntry SeekTableEntry;
