@@ -310,7 +310,11 @@ void compressFile(Context *ctx){
                     if(isTarHeader(header)){
                         size_t size = strtol(header->size, NULL, 8);
 
-                        size_t toNextHeader = (size_t)(ceil((float)size / 512.0) * 512) + 512;
+                        size_t mod = size%512;
+                        if(mod){
+                            size = size - mod + 512;
+                        }
+                        size_t toNextHeader  = size + 512;
 
                         tarHeaderIdx += toNextHeader;
                         blockSize += toNextHeader;
@@ -340,7 +344,7 @@ void compressFile(Context *ctx){
 
         ZSTD_CCtx_setPledgedSrcSize(ctx->cctx, blockSize);
         if(ctx->verbose){
-            fprintf(stderr, "# END OF BLOCK (%lu)\n\n", blockSize);
+            fprintf(stderr, "# END OF BLOCK (%lu, %lu)\n\n", blockSize, tarHeaderIdx);
         }
 
         if(readBuff+blockSize > ctx->inBuff+ctx->inBuffSize){
