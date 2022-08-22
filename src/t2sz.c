@@ -62,7 +62,7 @@ bool isTarHeader(TarHeader* header){
     char* buf = malloc(7);
     memcpy(buf, header->chksum, 6);
     buf[6] = 0;
-    uint32_t hdrChksum = strtol(buf, NULL, 8);
+    uint32_t hdrChksum = strtoul(buf, NULL, 8);
     free(buf);
 
     if(chksum != hdrChksum){
@@ -308,7 +308,7 @@ void compressFile(Context *ctx){
                 }else if(ctx->inBuff[tarHeaderIdx]){//tar ends with null headers that we can skip
                     TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
                     if(isTarHeader(header)){
-                        size_t size = strtol(header->size, NULL, 8);
+                        size_t size = strtoul(header->size, NULL, 8);
 
                         size_t mod = size%512;
                         if(mod){
