@@ -4,9 +4,9 @@
 [![AUR version](https://img.shields.io/aur/version/t2sz)](https://aur.archlinux.org/packages/t2sz/)
 
 # t2sz
-It compress a file into a seekable [zstd](https://github.com/facebook/zstd) splitting the file into multiple frames.
+It compresses a file into a seekable [zstd](https://github.com/facebook/zstd) splitting the file into multiple frames.
 
-If the file is a tar archive it compress each file in the archive into an independent frame, hence the name: tar 2 seekable zstd.
+If the file is a tar archive it compresses each file in the archive into an independent frame, hence the name: tar 2 seekable zstd.
 
 It operates in two modes. Tar archive mode and raw mode.
 
@@ -14,15 +14,15 @@ By default it runs in tar archive mode for files ending with `.tar`, unless `-r`
 
 For all other files it runs in raw mode.
 
-In tar archive mode it compress the archive keeping each file in a different frame, unless `-s` or `-S` is used.
+In tar archive mode it compresses the archive keeping each file in a different frame, unless `-s` or `-S` is used.
 
 This allows fast seeking and extraction of a single file without decompressing the whole archive.
 
-When `-s SIZE` is used in tar mode, if the size of the file being compressed into a block is less than `SIZE` then another one will be added in the same block, and so on until the sum of the sizes of all files packed together is at least `SIZE`. A file will be never spltted as `SIZE` is just a minimum value.
+When `-s SIZE` is used in tar mode, if the size of the file being compressed into a block is less than `SIZE` then another one will be added in the same block, and so on until the sum of the sizes of all files packed together is at least `SIZE`. A file will be never split as `SIZE` is just a minimum value.
 
 When `-s SIZE` is used in raw mode then it defines exactly the input block size and bigger inputs will be split in blocks of this size accordingly. If there isn't enough input data the last block will be smaller.
 
-When `-S SIZE` is used, files bigger than `SIZE` will be splitted in blocks of `SIZE` length. It is available only in tar mode and ignored in raw mode.
+When `-S SIZE` is used, files bigger than `SIZE` will be split in blocks of `SIZE` length. It is available only in tar mode and ignored in raw mode.
 
 The compressed archive can be decompressed with any Zstandard tool, including `zstd`.
 
@@ -83,7 +83,7 @@ Options:
         -s SIZE            In raw mode: the exact size of each input block, except the last one.
                            In tar mode: the minimum size of an input block, in bytes.
                                         A block is composed by one or more whole files.
-                                        A file is never truncated unless -S is used.
+                                        A file is never split unless -S is used.
                                         If not specified one block will contain exactly one file, no matter the file size.
                                         Each block is compressed to a zstd frame but if the archive has a lot of small files
                                         having a file per block doesn't compress very well. With this you can set a trade off.
@@ -97,9 +97,9 @@ Options:
                                GB = 1000^3
         -S SIZE            In raw mode: it is ignored.
                            In tar mode: the maximum size of an input block, in bytes.
-                           Unlike -s this option may split big files in smaller chuncks.
+                           Unlike -s this option may split big files in smaller chunks.
                            Remember that each block is compressed independently and a small value here will result in a bigger archive.
-                           -S can be used together with -s but MUST be greater or equal to it's value.
+                           -S can be used together with -s but MUST be greater or equal to its value.
                            If -S and -s are equal the input block will be of exactly that size, if there is enough input data.
                            Like -s SIZE may be followed by one of the multiplicative suffixes described above.
         -T [1..N]          Number of thread to spawn. It improves compression speed but cost more memory. Default is single thread.
@@ -122,7 +122,7 @@ See LICENSE
 
 ## Debian-based
 
-Download the latest stable source code or .deb from the [release page](https://github.com/martinellimarco/t2sz/releases/latest). This is the raccomanded version.
+Download the latest stable source code or .deb from the [release page](https://github.com/martinellimarco/t2sz/releases/latest). This is the recommended version.
 
 ## Arch-based
 
