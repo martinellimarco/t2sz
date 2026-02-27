@@ -2,37 +2,61 @@ name: Test Build
 
 on: [push]
 
-env:
-  BUILD_TYPE: Release
-
 jobs:
-  build:
-    runs-on: ubuntu-20.04
-
+  test:
+    runs-on: ubuntu-24.04
     steps:
-    - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-    - name: Install Dependencies
-      shell: bash
-      run: |
-        sudo apt update
-        sudo apt install libzstd-dev -y
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libzstd-dev zstd cmake
 
-    - name: Create Build Environment
-      run: cmake -E make_directory ${{runner.workspace}}/build
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
 
-    - name: Configure CMake
-      shell: bash
-      working-directory: ${{runner.workspace}}/build
-      run: cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=$BUILD_TYPE
+      - name: Build
+        run: cmake --build build
 
-    - name: Build
-      working-directory: ${{runner.workspace}}/build
-      shell: bash
-      run: cmake --build . --config $BUILD_TYPE
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j4
 
-    - name: Create DEB Package
-      id: create-deb-package
-      working-directory: ${{runner.workspace}}/build
-      shell: bash
-      run: cpack
+  test-asan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libzstd-dev zstd cmake
+
+      - name: Configure
+        run: cmake -B build_asan -DBUILD_TESTS=ON -DSANITIZE=ON
+
+      - name: Build
+        run: cmake --build build_asan
+
+      - name: Test (ASAN + UBSan + LeakSanitizer)
+        run: ctest --test-dir build_asan --output-on-failure -j4
+
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y libzstd-dev cmake
+
+      - name: Create Build Environment
+        run: cmake -E make_directory ${{runner.workspace}}/build
+
+      - name: Configure CMake
+        working-directory: ${{runner.workspace}}/build
+        run: cmake $GITHUB_WORKSPACE -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        working-directory: ${{runner.workspace}}/build
+        run: cmake --build . --config Release
+
+      - name: Create DEB Package
+        id: create-deb-package
+        working-directory: ${{runner.workspace}}/build
+        run: cpack
