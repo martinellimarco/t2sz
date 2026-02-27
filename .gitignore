@@ -1,1 +1,8 @@
 .idea
+build
+build_asan/
+build_cov/
+tests/blobs/
+tests/coverage/
+tests/cmake-build-*
+cmake-build-*

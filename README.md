@@ -137,3 +137,10 @@ You can add access to removable devices such as those stored in `/media` with `s
 If you want to give it access to every file you can install it with `--devmode`.
 
 [![Get it from the Snap Store](https://snapcraft.io/static/images/badges/en/snap-store-black.svg)](https://snapcraft.io/t2sz)
+
+# Testing
+
+The project includes a comprehensive test suite covering round-trip correctness
+(compress → decompress → SHA-256 verify), memory safety (AddressSanitizer +
+UBSanitizer), and code coverage (LLVM). See [TESTING.md](TESTING.md) for
+prerequisites, build configurations, and the full list of test cases.
