@@ -44,21 +44,21 @@ typedef struct __attribute__((__packed__)) { /* byte offset */
     /* 500 */
 } TarHeader;
 
-uint32_t checksum(TarHeader* header){
-    const uint8_t* ptr = (uint8_t*)header;
+uint32_t checksum(const TarHeader* header){
+    const uint8_t* ptr = (const uint8_t*)header;
     uint32_t ac = 0;
 
-    while (ptr < (uint8_t*)&header->chksum) ac += *ptr++;
+    while (ptr < (const uint8_t*)&header->chksum) ac += *ptr++;
 
     ac += 8*0x20;//8 ASCII spaces
     ptr+= 8;
 
-    while (ptr < (uint8_t*)header+512) ac += *ptr++;
+    while (ptr < (const uint8_t*)header+512) ac += *ptr++;
 
     return ac;
 }
 
-bool isTarHeader(TarHeader* header){
+bool isTarHeader(const TarHeader* header){
     const uint32_t chksum = checksum(header);
 
     char buf[7];
