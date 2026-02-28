@@ -44,20 +44,44 @@ typedef struct __attribute__((__packed__)) { /* byte offset */
     /* 500 */
 } TarHeader;
 
+/**
+ * Compute the POSIX tar header checksum.
+ *
+ * Sums all 512 bytes of the header, treating the 8-byte chksum field
+ * (offset 148-155) as ASCII spaces (0x20) per the POSIX spec.
+ *
+ * @param header  Pointer to a 512-byte tar header block.
+ * @return        The unsigned 32-bit checksum value.
+ */
 uint32_t checksum(const TarHeader* header){
     const uint8_t* ptr = (const uint8_t*)header;
     uint32_t ac = 0;
 
-    while (ptr < (const uint8_t*)&header->chksum) ac += *ptr++;
+    while(ptr < (const uint8_t*)&header->chksum) {
+        ac += *ptr++;
+    }
 
     ac += 8*0x20;//8 ASCII spaces
     ptr+= 8;
 
-    while (ptr < (const uint8_t*)header+512) ac += *ptr++;
+    while(ptr < (const uint8_t*)header+512) {
+        ac += *ptr++;
+    }
 
     return ac;
 }
 
+/**
+ * Validate a tar header by comparing its stored checksum against the
+ * computed one.
+ *
+ * Extracts the 6-byte octal string from header->chksum, converts it
+ * with strtoul, and compares to checksum(). Prints a diagnostic on
+ * mismatch.
+ *
+ * @param header  Pointer to the tar header to validate.
+ * @return        true if the checksum matches, false otherwise.
+ */
 bool isTarHeader(const TarHeader* header){
     const uint32_t chksum = checksum(header);
 
@@ -111,11 +135,25 @@ typedef struct {
     bool skipSeekTable;
 } Context;
 
+/**
+ * Detect the host byte order at runtime.
+ *
+ * @return  true on little-endian machines (x86, ARM64), false on big-endian.
+ */
 bool isLittleEndian(){
     volatile int x = 1;
     return *(char*)(&x) == 1;
 }
 
+/**
+ * Write a 32-bit unsigned integer to memory in little-endian byte order.
+ *
+ * On little-endian hosts this is a straight memcpy; on big-endian hosts
+ * the bytes are swapped first.
+ *
+ * @param dst   Destination buffer (must hold at least 4 bytes).
+ * @param data  The value to store.
+ */
 void writeLE32(void* dst, const uint32_t data){
     if(isLittleEndian()){
         memcpy(dst, &data, sizeof(data));
@@ -128,6 +166,20 @@ void writeLE32(void* dst, const uint32_t data){
     }
 }
 
+/**
+ * Append the zstd seekable-format seek table to the output file.
+ *
+ * Writes a Skippable frame (magic 0x184D2A5E | 0xE) containing:
+ *   - one (compressedSize, decompressedSize) pair per frame,
+ *   - a footer with Number_Of_Frames, Seek_Table_Descriptor (0),
+ *     and Seekable_Magic_Number (0x8F92EAB1).
+ *
+ * All multi-byte fields are written in little-endian order.
+ * In verbose mode, the per-frame sizes are printed to stderr.
+ *
+ * @param ctx  The compression context (reads seekTable, seekTableLen,
+ *             outFile, verbose).
+ */
 void writeSeekTable(const Context *ctx){
     uint8_t buf[4];
     //Skippable_Magic_Number
@@ -144,7 +196,7 @@ void writeSeekTable(const Context *ctx){
     }
 
     //Seek_Table_Entries
-    for (size_t i = 0; i < ctx->seekTableLen; i++) {
+    for(size_t i = 0; i < ctx->seekTableLen; i++){
         const SeekTableEntry* e = &ctx->seekTable[i];
 
         //Compressed_Size
@@ -174,14 +226,27 @@ void writeSeekTable(const Context *ctx){
     fwrite(buf, 4, 1, ctx->outFile);
 }
 
+/**
+ * Ensure the seek table array has room for at least @p needed entries.
+ *
+ * Doubles the capacity (starting from 1024) until it meets the
+ * requirement, then reallocates. Aborts on OOM.
+ *
+ * @param ctx     The compression context owning the seek table.
+ * @param needed  Minimum number of entries required.
+ */
 static void seekTableEnsureCap(Context* ctx, const size_t needed) {
-    if (ctx->seekTableCap >= needed) return;
+    if(ctx->seekTableCap >= needed) {
+        return;
+    }
 
     size_t newCap = ctx->seekTableCap ? ctx->seekTableCap : 1024; // start cap
-    while (newCap < needed) newCap *= 2;
+    while(newCap < needed) {
+        newCap *= 2;
+    }
 
     SeekTableEntry* p = realloc(ctx->seekTable, newCap * sizeof(SeekTableEntry));
-    if (!p) {
+    if(!p){
         fprintf(stderr, "ERROR: Out of memory while growing seek table\n");
         exit(EXIT_FAILURE);
     }
@@ -189,6 +254,17 @@ static void seekTableEnsureCap(Context* ctx, const size_t needed) {
     ctx->seekTableCap = newCap;
 }
 
+/**
+ * Record a compressed frame in the seek table.
+ *
+ * Silently becomes a no-op if the seek table has been disabled (by -j
+ * or by overflow guards). Disables the table and prints a warning if
+ * the frame count or sizes exceed the seekable-format uint32 limits.
+ *
+ * @param ctx               The compression context.
+ * @param compressedSize    Compressed size of the frame (bytes).
+ * @param decompressedSize  Decompressed size of the frame (bytes).
+ */
 void seekTableAdd(Context* ctx, const uint64_t compressedSize, const uint64_t decompressedSize){
     if(ctx->skipSeekTable){
         return;
@@ -218,6 +294,14 @@ void seekTableAdd(Context* ctx, const uint64_t compressedSize, const uint64_t de
     ctx->seekTableLen++;
 }
 
+/**
+ * Allocate and zero-initialize a new compression Context.
+ *
+ * Sets the default compression level to 3. All other fields are zero
+ * (false / NULL / 0). Aborts on OOM.
+ *
+ * @return  A heap-allocated Context; caller must free().
+ */
 Context* newContext(){
     Context* ctx = malloc(sizeof(Context));
     if(!ctx){
@@ -229,6 +313,16 @@ Context* newContext(){
     return ctx;
 }
 
+/**
+ * Memory-map the input file for the mmap compression path.
+ *
+ * Opens the file read-only, determines its size via lseek, and maps it
+ * into ctx->inBuff. Aborts on any I/O error or if the file is empty.
+ * No-op when ctx->stdinMode is true (stdin is handled separately).
+ *
+ * @param ctx  The compression context (reads inFilename, stdinMode;
+ *             writes inBuff, inBuffSize).
+ */
 void prepareInput(Context *ctx){
     if(ctx->stdinMode){
         // The stdin path is handled by compressStdinRaw()/compressStdinTar().
@@ -263,6 +357,16 @@ void prepareInput(Context *ctx){
     close(fd);
 }
 
+/**
+ * Open the output destination and allocate the output buffer.
+ *
+ * If stdoutMode is true, uses stdout directly; otherwise opens
+ * ctx->outFilename for writing. Allocates an output buffer sized
+ * by ZSTD_CStreamOutSize(). Aborts on fopen or OOM failure.
+ *
+ * @param ctx  The compression context (reads outFilename, stdoutMode;
+ *             writes outFile, outBuff, outBuffSize).
+ */
 void prepareOutput(Context *ctx){
     if(ctx->stdoutMode){
         ctx->outFile = stdout;
@@ -281,6 +385,17 @@ void prepareOutput(Context *ctx){
     }
 }
 
+/**
+ * Create and configure the zstd compression context.
+ *
+ * Sets the compression level and enables content checksums. If workers
+ * is non-zero, attempts to enable multi-threaded compression; falls
+ * back to single-thread on failure (e.g. libzstd without ZSTD_MULTITHREAD).
+ * Aborts on fatal errors.
+ *
+ * @param ctx  The compression context (reads level, workers;
+ *             writes cctx).
+ */
 void prepareCctx(Context *ctx){
     ctx->cctx = ZSTD_createCCtx();
     if(ctx->cctx == NULL){
@@ -311,6 +426,14 @@ void prepareCctx(Context *ctx){
     }
 }
 
+/**
+ * Reset the zstd session for a new independent frame.
+ *
+ * Keeps compression parameters but clears the internal state so the
+ * next compressed output starts a fresh frame. Aborts on error.
+ *
+ * @param ctx  The compression context (reads cctx).
+ */
 static void zstdResetFrame(const Context *ctx){
     const size_t err = ZSTD_CCtx_reset(ctx->cctx, ZSTD_reset_session_only);
     if(ZSTD_isError(err)){
@@ -319,14 +442,38 @@ static void zstdResetFrame(const Context *ctx){
     }
 }
 
+/**
+ * Set the pledged source size for the current frame.
+ *
+ * When @p known is true, tells zstd exactly how many bytes to expect,
+ * which enables single-pass optimizations. When false, sets
+ * ZSTD_CONTENTSIZE_UNKNOWN for streaming with unknown length.
+ * Aborts on error.
+ *
+ * @param ctx    The compression context (reads cctx).
+ * @param size   The pledged size in bytes (ignored if known is false).
+ * @param known  Whether the source size is known in advance.
+ */
 static void zstdSetPledged(const Context *ctx, const unsigned long long size, const bool known){
     const size_t err = ZSTD_CCtx_setPledgedSrcSize(ctx->cctx, known ? size : ZSTD_CONTENTSIZE_UNKNOWN);
-    if (ZSTD_isError(err)) {
+    if(ZSTD_isError(err)){
         fprintf(stderr, "ERROR: Can't set pledged size: %s\n", ZSTD_getErrorName(err));
         exit(EXIT_FAILURE);
     }
 }
 
+/**
+ * Compress an entire memory buffer into a single zstd frame.
+ *
+ * Resets the session, pledges the exact source size, then feeds all
+ * bytes through ZSTD_compressStream2 with ZSTD_e_continue followed by
+ * ZSTD_e_end. Writes compressed output to ctx->outFile.
+ *
+ * @param ctx      The compression context.
+ * @param src      Source data buffer.
+ * @param srcSize  Number of bytes to compress.
+ * @return         Total number of compressed bytes written.
+ */
 static uint64_t zstdCompressBufferToFrame(const Context *ctx, const uint8_t *src, const size_t srcSize){
     // Compress exactly one frame from a memory buffer, with known size.
     zstdResetFrame(ctx);
@@ -354,6 +501,16 @@ static uint64_t zstdCompressBufferToFrame(const Context *ctx, const uint8_t *src
     return compressedSize;
 }
 
+/**
+ * Finalize the current zstd frame without providing additional input.
+ *
+ * Flushes all pending data and writes the frame epilogue.
+ * Uses a non-NULL dummy buffer to satisfy libzstd implementations
+ * that reject NULL input pointers.
+ *
+ * @param ctx  The compression context.
+ * @return     Number of compressed bytes written during finalization.
+ */
 static uint64_t zstdEndFrame(const Context *ctx){
     uint64_t compressedSize = 0;
 
@@ -376,6 +533,21 @@ static uint64_t zstdEndFrame(const Context *ctx){
     return compressedSize;
 }
 
+/**
+ * Compress raw (non-tar) data read from standard input.
+ *
+ * Two modes based on ctx->minBlockSize:
+ *   - minBlockSize == 0: streams all of stdin into a single frame with
+ *     unknown pledged size (matches the mmap "whole file" behaviour).
+ *   - minBlockSize > 0: buffers exactly minBlockSize bytes at a time,
+ *     compressing each chunk as an independent frame with known size.
+ *     The last frame may be smaller if EOF is reached mid-buffer.
+ *
+ * Each frame is recorded in the seek table via seekTableAdd().
+ *
+ * @param ctx  The compression context (must have cctx, outFile, outBuff
+ *             already initialized).
+ */
 static void compressStdinRaw(Context *ctx){
     // Two behaviours:
     // - If -s is set (minBlockSize > 0): read exactly one frame worth of bytes into a frame buffer,
@@ -389,7 +561,7 @@ static void compressStdinRaw(Context *ctx){
 
         const size_t inChunk = ZSTD_CStreamInSize();
         uint8_t *inBuf = malloc(inChunk);
-        if (!inBuf) {
+        if(!inBuf){
             fprintf(stderr, "ERROR: Out of memory allocating stdin buffer\n");
             exit(EXIT_FAILURE);
         }
@@ -474,6 +646,14 @@ static void compressStdinRaw(Context *ctx){
     free(frameBuf);
 }
 
+/**
+ * Check whether a 512-byte block is entirely zero.
+ *
+ * Two consecutive zero blocks mark the end-of-archive in a tar stream.
+ *
+ * @param b  Pointer to a 512-byte block.
+ * @return   true if all 512 bytes are 0x00.
+ */
 static bool isZeroTarBlock(const uint8_t *b){
     for(size_t i = 0; i < 512; i++){
         if(b[i] != 0) return false;
@@ -481,6 +661,15 @@ static bool isZeroTarBlock(const uint8_t *b){
     return true;
 }
 
+/**
+ * Read exactly @p n bytes from stdin into @p dst.
+ *
+ * Loops on partial reads (fread may return less than requested).
+ * Aborts with an error message on premature EOF or read error.
+ *
+ * @param dst  Destination buffer (must hold at least @p n bytes).
+ * @param n    Number of bytes to read.
+ */
 static void readExactStdin(uint8_t *dst, const size_t n){
     size_t got = 0;
     while(got < n){
@@ -497,6 +686,17 @@ static void readExactStdin(uint8_t *dst, const size_t n){
     }
 }
 
+/**
+ * Begin a new zstd frame with unknown pledged size.
+ *
+ * Resets the session, sets pledged to unknown, and zeroes the
+ * running byte counters for the frame being built.
+ *
+ * @param ctx        The compression context.
+ * @param frameIn    [out] Reset to 0 (decompressed bytes in frame).
+ * @param frameOut   [out] Reset to 0 (compressed bytes in frame).
+ * @param frameOpen  [out] Set to true.
+ */
 static void startFrameUnknown(const Context *ctx, uint64_t *frameIn, uint64_t *frameOut, bool *frameOpen){
     zstdResetFrame(ctx);
     zstdSetPledged(ctx, 0, false); // unknown size
@@ -505,6 +705,18 @@ static void startFrameUnknown(const Context *ctx, uint64_t *frameIn, uint64_t *f
     *frameOpen = true;
 }
 
+/**
+ * Finalize the current frame and record it in the seek table.
+ *
+ * Calls zstdEndFrame() to flush remaining output, adds the frame's
+ * totals to the seek table, and marks the frame as closed.
+ * No-op if *frameOpen is already false.
+ *
+ * @param ctx        The compression context.
+ * @param frameIn    Decompressed bytes accumulated in this frame.
+ * @param frameOut   Compressed bytes accumulated so far (updated by zstdEndFrame).
+ * @param frameOpen  [in/out] Set to false on return.
+ */
 static void endFrameAndRecord(Context *ctx, const uint64_t frameIn, uint64_t frameOut, bool *frameOpen){
     if(!*frameOpen){
         return;
@@ -516,6 +728,22 @@ static void endFrameAndRecord(Context *ctx, const uint64_t frameIn, uint64_t fra
     *frameOpen = false;
 }
 
+/**
+ * Feed tar payload bytes into the current zstd frame, respecting
+ * maxBlockSize splitting.
+ *
+ * Opens a new frame if none is active. If maxBlockSize is set and the
+ * frame reaches the limit, closes it and opens the next one, possibly
+ * splitting the input across multiple frames. All compressed output
+ * is written to ctx->outFile.
+ *
+ * @param ctx        The compression context.
+ * @param src        Source bytes to compress.
+ * @param n          Number of bytes in @p src.
+ * @param frameIn    [in/out] Running decompressed byte count for the current frame.
+ * @param frameOut   [in/out] Running compressed byte count for the current frame.
+ * @param frameOpen  [in/out] Whether a frame is currently open.
+ */
 static void pushBytesTar(Context *ctx, const uint8_t *src, const size_t n, uint64_t *frameIn, uint64_t *frameOut, bool *frameOpen){
     size_t off = 0;
     while(off < n){
@@ -556,6 +784,24 @@ static void pushBytesTar(Context *ctx, const uint8_t *src, const size_t n, uint6
     }
 }
 
+/**
+ * Compress a tar archive read from standard input.
+ *
+ * Reads 512-byte blocks from stdin, parsing tar headers to determine
+ * file boundaries. Implements the same framing logic as the mmap path:
+ *   - minBlockSize == 0: one file per frame.
+ *   - minBlockSize > 0: aggregate whole files until the frame reaches
+ *     the minimum, then close at the next file boundary.
+ *   - maxBlockSize > 0: split so no frame exceeds the maximum (may
+ *     split inside a file).
+ *
+ * Null blocks (end-of-archive markers) and payload padding are included
+ * in the compressed stream. Each completed frame is recorded in the
+ * seek table.
+ *
+ * @param ctx  The compression context (must have cctx, outFile, outBuff
+ *             already initialized).
+ */
 static void compressStdinTar(Context *ctx){
     // Default tar behaviour matches mmap-path:
     // - if minBlockSize==0: "one file per frame"
@@ -658,6 +904,15 @@ static void compressStdinTar(Context *ctx){
     free(chunkBuf);
 }
 
+/**
+ * Finalize output after all frames have been compressed.
+ *
+ * Writes the seek table (unless disabled), frees the seek table array
+ * and the zstd context, closes or flushes the output file, and frees
+ * the output buffer.
+ *
+ * @param ctx  The compression context.
+ */
 static void cleanupCompression(const Context *ctx){
     if(!ctx->skipSeekTable){
         writeSeekTable(ctx);
@@ -672,6 +927,28 @@ static void cleanupCompression(const Context *ctx){
     free(ctx->outBuff);
 }
 
+/**
+ * Top-level compression driver.
+ *
+ * Prepares output and the zstd context, then dispatches to one of four
+ * code paths depending on input source and mode:
+ *
+ *   | Input  | Mode | Handler             |
+ *   |--------|------|---------------------|
+ *   | stdin  | raw  | compressStdinRaw()  |
+ *   | stdin  | tar  | compressStdinTar()  |
+ *   | file   | raw  | inline mmap loop    |
+ *   | file   | tar  | inline mmap loop    |
+ *
+ * For the mmap path, iterates over the input buffer, splitting it into
+ * independently compressed frames according to minBlockSize / maxBlockSize
+ * and tar header boundaries.
+ *
+ * On completion, calls cleanupCompression() to flush and release resources.
+ *
+ * @param ctx  Fully configured compression context (inFilename or stdinMode,
+ *             outFilename or stdoutMode, level, rawMode, block sizes, etc.).
+ */
 void compressFile(Context *ctx){
     prepareOutput(ctx);
 
@@ -767,7 +1044,7 @@ void compressFile(Context *ctx){
             size_t remaining;
             ZSTD_EndDirective mode;
             uint64_t compressedSize = 0;
-            do {
+            do{
                 ZSTD_outBuffer output = {ctx->outBuff, ctx->outBuffSize, 0 };
                 mode = input.pos < input.size ? ZSTD_e_continue : ZSTD_e_end;
                 remaining = ZSTD_compressStream2(ctx->cctx, &output , &input, mode);
@@ -776,7 +1053,7 @@ void compressFile(Context *ctx){
                     exit(EXIT_FAILURE);
                 }
                 compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
-            } while (mode==ZSTD_e_continue || remaining>0);
+            }while(mode==ZSTD_e_continue || remaining>0);
 
             seekTableAdd(ctx, compressedSize, blockSize);
 
@@ -788,6 +1065,15 @@ void compressFile(Context *ctx){
     }
 }
 
+/**
+ * Derive the default output filename by appending ".zst" to the input name.
+ *
+ * Allocates a new string on the heap. Caller must free().
+ * Aborts on OOM.
+ *
+ * @param inFilename  The input file path.
+ * @return            A newly allocated string "<inFilename>.zst".
+ */
 static char* getOutFilename(const char* inFilename){
     const size_t size = strlen(inFilename) + 5;
     void* const buff = malloc(size);
@@ -801,6 +1087,9 @@ static char* getOutFilename(const char* inFilename){
     return buff;
 }
 
+/**
+ * Print version and copyright information to stderr.
+ */
 void version(){
     fprintf(stderr,
             "t2sz version %s\n"
@@ -811,6 +1100,17 @@ void version(){
             VERSION);
 }
 
+/**
+ * Print usage information and exit.
+ *
+ * If @p str is non-NULL it is printed as an error message to stderr
+ * before the help text, and the process exits with EXIT_FAILURE.
+ * If @p str is NULL (i.e. invoked via -h), only the help text is
+ * printed and the process exits with EXIT_SUCCESS.
+ *
+ * @param name  The executable name (argv[0]), used in the usage examples.
+ * @param str   Optional error message, or NULL for a clean help request.
+ */
 void usage(const char *name, const char *str){
     if(str){
         fprintf(stderr, "%s\n\n", str);
@@ -885,6 +1185,13 @@ void usage(const char *name, const char *str){
     exit(!str ? EXIT_SUCCESS : EXIT_FAILURE);
 }
 
+/**
+ * Test whether a string ends with the given suffix.
+ *
+ * @param str  The string to inspect.
+ * @param suf  The suffix to look for.
+ * @return     true if @p str ends with @p suf (case-sensitive).
+ */
 bool strEndsWith(const char * str, const char * suf){
     const size_t strLen = strlen(str);
     const size_t sufLen = strlen(suf);
@@ -892,6 +1199,17 @@ bool strEndsWith(const char * str, const char * suf){
     return (strLen >= sufLen) && (0 == strcmp(str + (strLen - sufLen), suf));
 }
 
+/**
+ * Parse an optional SI / IEC size suffix from a CLI argument string.
+ *
+ * Recognized suffixes (matched via strEndsWith):
+ *   k, K, KiB → 1024      kB, KB → 1000
+ *   M, MiB    → 1024²     MB     → 1000²
+ *   G, GiB    → 1024³     GB     → 1000³
+ *
+ * @param arg  The full CLI argument (e.g. "256k", "10MiB", "42").
+ * @return     The multiplier (≥ 1). Returns 1 if no suffix matches.
+ */
 size_t decodeMultiplier(const char *arg){
     size_t multiplier = 1;
     if(strEndsWith(arg, "k") || strEndsWith(arg, "K") || strEndsWith(arg, "KiB")){
@@ -910,6 +1228,18 @@ size_t decodeMultiplier(const char *arg){
     return multiplier;
 }
 
+/**
+ * Entry point — parse CLI options, configure the context, and compress.
+ *
+ * Handles option parsing (getopt), input/output filename resolution,
+ * stdin/stdout mode detection, overwrite prompting, and raw-mode
+ * auto-detection based on the ".tar" extension. On success, calls
+ * compressFile() and returns EXIT_SUCCESS.
+ *
+ * @param argc  Argument count.
+ * @param argv  Argument vector.
+ * @return      EXIT_SUCCESS on success, EXIT_FAILURE on error.
+ */
 int main(int argc, char **argv){
     Context *ctx = newContext();
     bool overwrite = false;
