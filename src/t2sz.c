@@ -219,14 +219,14 @@ void prepareInput(Context *ctx){
     const int fd = open(ctx->inFilename, O_RDONLY, 0);
     if(fd < 0){
         fprintf(stderr, "ERROR: Unable to open '%s'\n", ctx->inFilename);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     ctx->inBuffSize = lseek(fd, 0L, SEEK_END);
 
     ctx->inBuff = (uint8_t*)mmap(NULL, ctx->inBuffSize, PROT_READ, MAP_PRIVATE, fd, 0);
     if(ctx->inBuff == MAP_FAILED){
         fprintf(stderr, "ERROR: Unable to mmap '%s'\n", ctx->inFilename);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     close(fd);
 }
@@ -235,7 +235,7 @@ void prepareOutput(Context *ctx){
     ctx->outFile = fopen(ctx->outFilename, "wb");
     if(!ctx->outFile){
         fprintf(stderr, "ERROR: Cannot open output file for writing\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
     ctx->outBuffSize = ZSTD_CStreamOutSize();
     ctx->outBuff = malloc(ctx->outBuffSize);
@@ -245,20 +245,20 @@ void prepareCctx(Context *ctx){
     ctx->cctx = ZSTD_createCCtx();
     if(ctx->cctx == NULL){
         fprintf(stderr, "ERROR: Cannot create ZSTD CCtx\n");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     size_t err;
     err = ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_compressionLevel, ctx->level);
     if(ZSTD_isError(err)){
         fprintf(stderr, "ERROR: Cannot set compression level: %s\n", ZSTD_getErrorName(err));
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     err = ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_checksumFlag, 1);
     if(ZSTD_isError(err)){
         fprintf(stderr, "ERROR: Cannot set checksum flag: %s\n", ZSTD_getErrorName(err));
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     if(ctx->workers){
@@ -330,7 +330,7 @@ void compressFile(Context *ctx){
                         }
                     }else{
                         fprintf(stderr, "ERROR: Invalid tar header. If this is not a tar archive use raw mode (-r)\n");
-                        exit(-1);
+                        exit(EXIT_FAILURE);
                     }
                 }else{
                     if(ctx->verbose){
@@ -350,7 +350,7 @@ void compressFile(Context *ctx){
 
         if(readBuff+blockSize > ctx->inBuff+ctx->inBuffSize){
             fprintf(stderr, "FATAL ERROR: This is a bug. Please, report it.\n");
-            exit(-1);
+            exit(EXIT_FAILURE);
         }
 
         ZSTD_inBuffer input = {readBuff, blockSize, 0 };
@@ -363,7 +363,7 @@ void compressFile(Context *ctx){
             remaining = ZSTD_compressStream2(ctx->cctx, &output , &input, mode);
             if(ZSTD_isError(remaining)){
                 fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(remaining));
-                exit(1);
+                exit(EXIT_FAILURE);
             }
             compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
         } while (mode==ZSTD_e_continue || remaining>0);
@@ -474,7 +474,7 @@ void usage(const char *name, const char *str){
             "\n",
             name);
     version();
-    exit(!str ? 0 : 1);
+    exit(!str ? EXIT_SUCCESS : EXIT_FAILURE);
 }
 
 bool strEndsWith(const char * str, const char * suf){
@@ -569,7 +569,7 @@ int main(int argc, char **argv){
                 break;
             case 'V':
                 version();
-                exit(0);
+                exit(EXIT_SUCCESS);
             case 'h':
             default:
                 usage(executable, NULL);
@@ -598,7 +598,7 @@ int main(int argc, char **argv){
     if(access(ctx->inFilename, F_OK) != 0){
         fprintf(stderr, "%s: File not found\n", ctx->inFilename);
         free(ctx);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     char *outFilenameToFree = NULL;
@@ -613,7 +613,7 @@ int main(int argc, char **argv){
         if(res && ans != 'y'){
             free(outFilenameToFree);
             free(ctx);
-            return 0;
+            return EXIT_SUCCESS;
         }
     }
 
@@ -622,5 +622,5 @@ int main(int argc, char **argv){
     free(outFilenameToFree);
     free(ctx);
 
-    return 0;
+    return EXIT_SUCCESS;
 }
