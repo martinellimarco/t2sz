@@ -9,6 +9,7 @@ url="https://github.com/martinellimarco/t2sz"
 license=('GPL3')
 depends=('zstd')
 makedepends=('git' 'cmake')
+checkdepends=('zstd')
 source=(git+https://github.com/martinellimarco/t2sz#tag=v${pkgver})
 provides=('t2sz')
 noextract=()
@@ -19,8 +20,13 @@ build(){
   [[ -d build ]] && rm -r build
   mkdir build
   cd build
-  cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE="Release" ..
+  cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE="Release" -DBUILD_TESTS=ON ..
   make
+}
+
+check(){
+  cd "$srcdir/$pkgname/build"
+  ctest --output-on-failure
 }
 
 package(){
