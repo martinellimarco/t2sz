@@ -27,21 +27,24 @@ endif()
 
 add_executable(t2sz src/t2sz.c)
 
-# --- Locate zstd (arch-aware: avoids stale x86_64 libs in /usr/local on Apple Silicon) ---
+# --- Locate zstd ---
+# On Apple Silicon prefer /opt/homebrew to avoid stale x86_64 libs in /usr/local,
+# but fall back to default paths for Intel Macs, MacPorts, and other setups.
 if(APPLE)
-    # Homebrew on Apple Silicon installs to /opt/homebrew.
-    # NO_DEFAULT_PATH prevents CMake from falling back to /usr/local,
-    # which may contain x86_64 remnants from a previous Intel Homebrew.
-    find_library(ZSTD_LIB  NAMES zstd   HINTS /opt/homebrew/lib     NO_DEFAULT_PATH)
-    find_path   (ZSTD_INC  NAMES zstd.h HINTS /opt/homebrew/include NO_DEFAULT_PATH)
+    find_library(ZSTD_LIB NAMES zstd HINTS /opt/homebrew/lib NO_DEFAULT_PATH)
+    find_path(ZSTD_INC NAMES zstd.h HINTS /opt/homebrew/include NO_DEFAULT_PATH)
+    if(NOT ZSTD_LIB)
+        find_library(ZSTD_LIB NAMES zstd)
+        find_path(ZSTD_INC NAMES zstd.h)
+    endif()
 else()
-    find_library(ZSTD_LIB  NAMES zstd)
-    find_path   (ZSTD_INC  NAMES zstd.h)
+    find_library(ZSTD_LIB NAMES zstd)
+    find_path(ZSTD_INC NAMES zstd.h)
 endif()
 
-if(NOT ZSTD_LIB)
+if(NOT ZSTD_LIB OR NOT ZSTD_INC)
     message(FATAL_ERROR
-        "zstd library not found.\n"
+        "zstd library or headers not found.\n"
         "  macOS:         brew install zstd\n"
         "  Debian/Ubuntu: apt install libzstd-dev\n"
         "  Arch:          pacman -S zstd\n")

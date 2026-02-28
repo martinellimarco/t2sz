@@ -622,7 +622,7 @@ static void compressStdinTar(Context *ctx){
         if(mod) padded = padded - mod + 512;
 
         if(ctx->verbose){
-            fprintf(stderr, "+ %s (%zu)\n", header->name, padded);
+            fprintf(stderr, "+ %.100s (%zu)\n", header->name, padded);
         }
 
         // Stream payload+pads: read exactly 'padded' bytes from stdin, push through compressor,
@@ -735,7 +735,7 @@ void compressFile(Context *ctx){
                             }
 
                             if(ctx->verbose){
-                                fprintf(stderr, "+ %s (%zu)\n", header->name, size);
+                                fprintf(stderr, "+ %.100s (%zu)\n", header->name, size);
                             }
                         }else{
                             fprintf(stderr, "ERROR: Invalid tar header. If this is not a tar archive use raw mode (-r)\n");
@@ -938,6 +938,9 @@ int main(int argc, char **argv){
                 if(endptr == optarg || errno == ERANGE || val < 1){
                     usage(executable, "ERROR: Invalid block size");
                 }
+                if(*endptr != '\0' && multiplier == 1){
+                    usage(executable, "ERROR: Invalid block size");
+                }
                 ctx->minBlockSize = (size_t)val * multiplier;
                 break;
             }
@@ -947,6 +950,9 @@ int main(int argc, char **argv){
                 errno = 0;
                 const long val = strtol(optarg, &endptr, 10);
                 if(endptr == optarg || errno == ERANGE || val < 1){
+                    usage(executable, "ERROR: Invalid block size");
+                }
+                if(*endptr != '\0' && multiplier == 1){
                     usage(executable, "ERROR: Invalid block size");
                 }
                 ctx->maxBlockSize = (size_t)val * multiplier;

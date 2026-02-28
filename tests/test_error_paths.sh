@@ -84,7 +84,7 @@ make_small_dat() {
 # ── Test dispatch ─────────────────────────────────────────────────────────────
 case "$TEST_NAME" in
 
-# ── CLI validation (all exit via usage() → exit 0) ───────────────────────────
+# ── CLI validation (validation failures exit via usage() → exit 1) ────────────
 
 no_args)
     # No input file argument: t2sz must print usage and exit 1.
@@ -574,8 +574,10 @@ bad_level_strtol)
 
 bad_block_s_strtol)
     # Exercises strtol() edge cases in -s argument parsing:
-    #   endptr == optarg (non-numeric), ERANGE (overflow), negative value.
+    #   endptr == optarg (non-numeric), trailing garbage (unrecognized suffix),
+    #   ERANGE (overflow), negative value.
     assert_exit 1  "$T2SZ" -s abc dummy
+    assert_exit 1  "$T2SZ" -s 2abc dummy
     assert_exit 1  "$T2SZ" -s 99999999999999999999 dummy
     assert_exit 1  "$T2SZ" -s -1 dummy
     log_pass "$TEST_NAME"
@@ -583,8 +585,10 @@ bad_block_s_strtol)
 
 bad_block_S_strtol)
     # Exercises strtol() edge cases in -S argument parsing:
-    #   endptr == optarg (non-numeric), ERANGE (overflow), negative value.
+    #   endptr == optarg (non-numeric), trailing garbage (unrecognized suffix),
+    #   ERANGE (overflow), negative value.
     assert_exit 1  "$T2SZ" -S abc dummy
+    assert_exit 1  "$T2SZ" -S 2abc dummy
     assert_exit 1  "$T2SZ" -S 99999999999999999999 dummy
     assert_exit 1  "$T2SZ" -S -1 dummy
     log_pass "$TEST_NAME"
