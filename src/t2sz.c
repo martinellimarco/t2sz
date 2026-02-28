@@ -406,7 +406,7 @@ void usage(const char *name, const char *str){
         fprintf(stderr, "%s\n\n", str);
     }
 
-    fprintf(stderr,
+    fprintf(stdout,
             "t2sz: tar 2 seekable zstd.\n"
             "It compresses a file into a seekable zstd, splitting the file into multiple frames.\n"
             "If the file is a tar archive it compresses each file in the archive into an independent frame, hence the name.\n"
@@ -466,7 +466,7 @@ void usage(const char *name, const char *str){
             "\n",
             name);
     version();
-    exit(0);
+    exit(!str ? 0 : 1);
 }
 
 bool strEndsWith(const char * str, const char * suf){
