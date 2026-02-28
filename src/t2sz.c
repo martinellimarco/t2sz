@@ -1,4 +1,4 @@
-//SPDX-License-Identifier: GPL-3.0-or-later
+// SPDX-License-Identifier: GPL-3.0-or-later
 /* ******************************************************************
  * t2sz
  * Copyright (c) 2020, Martinelli Marco
@@ -816,7 +816,7 @@ void usage(const char *name, const char *str){
         fprintf(stderr, "%s\n\n", str);
     }
 
-    fprintf(stdout,
+    fprintf(stderr,
             "t2sz: tar 2 seekable zstd.\n"
             "It compresses a file into a seekable zstd, splitting the file into multiple frames.\n"
             "If the file is a tar archive it compresses each file in the archive into an independent frame, hence the name.\n"

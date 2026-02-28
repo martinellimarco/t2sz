@@ -96,7 +96,7 @@ add_roundtrip_test(tar_multi_threads tar   12 524288     10  -T  2)
 add_roundtrip_test(empty_tar         empty_tar  0  0  1)
 set_tests_properties(empty_tar PROPERTIES TIMEOUT 30)
 
-# Large files (skipped automatically if disk space < 5 GB)
+# Large files (auto-skipped when disk space is tight: ~4 GB for raw_1gb, ~2 GB for tar_500mb)
 add_roundtrip_test(raw_1gb           raw   99 1073741824  1)
 add_roundtrip_test(tar_500mb         tar   98 524288000   1)
 set_tests_properties(raw_1gb tar_500mb PROPERTIES
