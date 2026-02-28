@@ -839,10 +839,10 @@ static void compressStdinTar(Context *ctx){
             exit(EXIT_FAILURE);
         }
 
-        // Always include the 512-byte block in the stream (like your mmap logic does).
-        pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
-
+        // Null block (end-of-archive marker): push into stream and continue.
         if(isZeroTarBlock(hdrBlock)){
+            pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
+
             if(ctx->verbose){
                 fprintf(stderr, "+ <null>\n");
             }
@@ -854,12 +854,17 @@ static void compressStdinTar(Context *ctx){
             continue;
         }
 
+        // Validate the tar header *before* pushing it into the compressor,
+        // consistent with the mmap path which validates before including.
         TarHeader *header = (TarHeader*)hdrBlock;
         if(!isTarHeader(header)){
             fprintf(stderr, "ERROR: Invalid tar header. If this is not a tar archive use raw mode (-r)\n");
             free(chunkBuf);
             exit(EXIT_FAILURE);
         }
+
+        // Header is valid — include the 512-byte block in the stream.
+        pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
 
         const size_t fileSize = strtoul(header->size, NULL, 8);
 
@@ -1201,32 +1206,40 @@ bool strEndsWith(const char * str, const char * suf){
 }
 
 /**
- * Parse an optional SI / IEC size suffix from a CLI argument string.
+ * Decode an exact SI / IEC size suffix into its numeric multiplier.
  *
- * Recognized suffixes (matched via strEndsWith):
+ * The suffix string must match exactly (strcmp); partial or embedded
+ * matches are rejected. Pass the remainder after strtol (i.e. endptr),
+ * not the full CLI argument.
+ *
+ * Recognized suffixes:
  *   k, K, KiB → 1024      kB, KB → 1000
  *   M, MiB    → 1024²     MB     → 1000²
  *   G, GiB    → 1024³     GB     → 1000³
  *
- * @param arg  The full CLI argument (e.g. "256k", "10MiB", "42").
- * @return     The multiplier (≥ 1). Returns 1 if no suffix matches.
+ * @param suffix  The suffix string to decode (e.g. "k", "GiB", "MB").
+ * @return        The multiplier (≥ 1). Returns 1 if no suffix matches.
  */
-size_t decodeMultiplier(const char *arg){
-    size_t multiplier = 1;
-    if(strEndsWith(arg, "k") || strEndsWith(arg, "K") || strEndsWith(arg, "KiB")){
-        multiplier = 1024;
-    }else if(strEndsWith(arg, "M") || strEndsWith(arg, "MiB")){
-        multiplier = 1024*1024;
-    }else if(strEndsWith(arg, "G") || strEndsWith(arg, "GiB")){
-        multiplier = 1024*1024*1024;
-    }else if(strEndsWith(arg, "kB") || strEndsWith(arg, "KB")){
-        multiplier = 1000;
-    }else if(strEndsWith(arg, "MB")){
-        multiplier = 1000*1000;
-    }else if(strEndsWith(arg, "GB")){
-        multiplier = 1000*1000*1000;
+size_t decodeMultiplier(const char *suffix){
+    if(strcmp(suffix, "k") == 0 || strcmp(suffix, "K") == 0 || strcmp(suffix, "KiB") == 0){
+        return 1024;
     }
-    return multiplier;
+    if(strcmp(suffix, "M") == 0 || strcmp(suffix, "MiB") == 0){
+        return 1024*1024;
+    }
+    if(strcmp(suffix, "G") == 0 || strcmp(suffix, "GiB") == 0){
+        return 1024*1024*1024;
+    }
+    if(strcmp(suffix, "kB") == 0 || strcmp(suffix, "KB") == 0){
+        return 1000;
+    }
+    if(strcmp(suffix, "MB") == 0){
+        return 1000*1000;
+    }
+    if(strcmp(suffix, "GB") == 0){
+        return 1000*1000*1000;
+    }
+    return 1;
 }
 
 /**
@@ -1263,13 +1276,13 @@ int main(int argc, char **argv){
                 ctx->outFilename = optarg;
                 break;
             case 's': {
-                const size_t multiplier = decodeMultiplier(optarg);
                 char *endptr;
                 errno = 0;
                 const long val = strtol(optarg, &endptr, 10);
                 if(endptr == optarg || errno == ERANGE || val < 1){
                     usage(executable, "ERROR: Invalid block size");
                 }
+                const size_t multiplier = decodeMultiplier(endptr);
                 if(*endptr != '\0' && multiplier == 1){
                     usage(executable, "ERROR: Invalid block size");
                 }
@@ -1280,13 +1293,13 @@ int main(int argc, char **argv){
                 break;
             }
             case 'S': {
-                const size_t multiplier = decodeMultiplier(optarg);
                 char *endptr;
                 errno = 0;
                 const long val = strtol(optarg, &endptr, 10);
                 if(endptr == optarg || errno == ERANGE || val < 1){
                     usage(executable, "ERROR: Invalid block size");
                 }
+                const size_t multiplier = decodeMultiplier(endptr);
                 if(*endptr != '\0' && multiplier == 1){
                     usage(executable, "ERROR: Invalid block size");
                 }

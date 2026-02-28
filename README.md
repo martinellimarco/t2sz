@@ -69,17 +69,23 @@ sudo dpkg -i t2sz*.deb
 ## Usage
 
 ```commandline
-Usage: t2sz [OPTIONS...] [TAR ARCHIVE]
+Usage: t2sz [OPTIONS...] [TAR ARCHIVE | -]
+
+Use '-' as the input filename to read from standard input.
 
 Examples:
         t2sz any.file -s 10M                        Compress any.file to any.file.zst, each input block will be of 10M
         t2sz archive.tar                            Compress archive.tar to archive.tar.zst
         t2sz archive.tar -o output.tar.zst          Compress archive.tar to output.tar.zst
-        t2sz archive.tar -o /dev/stdout             Compress archive.tar to standard output
+        t2sz archive.tar -o -                       Compress archive.tar to standard output
+        t2sz -r - -o out.zst                        Compress stdin (raw mode) to out.zst
+        t2sz - -o out.tar.zst                       Compress tar from stdin to out.tar.zst
+        t2sz -r - -o -                              Compress stdin to stdout (raw mode)
 
 Options:
         -l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 3.
-        -o FILENAME        Output file name.
+        -o FILENAME        Output file name. Use '-' to write to standard output.
+                           When reading from stdin ('-') and -o is omitted, output defaults to stdout.
         -s SIZE            In raw mode: the exact size of each input block, except the last one.
                            In tar mode: the minimum size of an input block, in bytes.
                                         A block is composed by one or more whole files.
