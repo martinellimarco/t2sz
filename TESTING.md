@@ -136,3 +136,15 @@ without hardware or environment conditions outside normal test execution:
 - **Multi-thread fallback** — requires libzstd built without `ZSTD_MULTITHREAD`.
 
 These are defensive guards, not untested logic.
+
+## Testing GitHub Actions
+
+To test GitHub Actions locally, you can use the `act` tool. Install it with `brew install act` and then run it in the repository root.
+
+This will simulate the GitHub Actions environment locally, allowing you to test your workflows and jobs without pushing to GitHub.
+
+```bash
+act --container-architecture linux/amd64 \
+    -P ubuntu-24.04=ghcr.io/catthehacker/ubuntu:act-24.04 \
+    push
+```
