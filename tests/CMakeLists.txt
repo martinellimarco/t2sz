@@ -61,11 +61,9 @@ function(set_test_env name)
             set_tests_properties(${name} PROPERTIES
                 ENVIRONMENT "ASAN_OPTIONS=halt_on_error=1:print_stats=1")
         else()
-            # LSAN suppressions for known at-exit leaks in t2sz.
-            # These are intentional for a short-lived CLI tool; the OS reclaims memory on exit.
-            # LSAN remains active and will catch any new unexpected leaks.
+            # All memory leaks in t2sz.c have been fixed; no LSAN suppressions needed.
             set_tests_properties(${name} PROPERTIES
-                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:print_stats=1;LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan_suppressions.txt")
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:print_stats=1")
         endif()
     endif()
 endfunction()

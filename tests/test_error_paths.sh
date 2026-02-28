@@ -87,50 +87,50 @@ case "$TEST_NAME" in
 # ── CLI validation (all exit via usage() → exit 0) ───────────────────────────
 
 no_args)
-    # No input file argument: t2sz must print usage and exit 0.
-    assert_exit 0  "$T2SZ"
+    # No input file argument: t2sz must print usage and exit 1.
+    assert_exit 1  "$T2SZ"
     log_pass "$TEST_NAME"
     ;;
 
 too_many_args)
-    # Two positional arguments: t2sz must print "Too many arguments" and exit 0.
-    assert_exit 0  "$T2SZ" file_a file_b
+    # Two positional arguments: t2sz must print "Too many arguments" and exit 1.
+    assert_exit 1  "$T2SZ" file_a file_b
     log_pass "$TEST_NAME"
     ;;
 
 bad_level_low)
-    # -l 0 is below the valid range [1..22]: must print usage and exit 0.
-    assert_exit 0  "$T2SZ" -l 0 dummy
+    # -l 0 is below the valid range [1..22]: must print usage and exit 1.
+    assert_exit 1  "$T2SZ" -l 0 dummy
     log_pass "$TEST_NAME"
     ;;
 
 bad_level_high)
-    # -l 23 is above the valid range [1..22]: must print usage and exit 0.
-    assert_exit 0  "$T2SZ" -l 23 dummy
+    # -l 23 is above the valid range [1..22]: must print usage and exit 1.
+    assert_exit 1  "$T2SZ" -l 23 dummy
     log_pass "$TEST_NAME"
     ;;
 
 bad_block_s)
-    # -s 0 produces a zero minimum block size (0 < multiplier=1): exit 0.
-    assert_exit 0  "$T2SZ" -s 0 dummy
+    # -s 0 produces a zero minimum block size (0 < multiplier=1): exit 1.
+    assert_exit 1  "$T2SZ" -s 0 dummy
     log_pass "$TEST_NAME"
     ;;
 
 bad_block_S)
-    # -S 0 produces a zero maximum block size (0 < multiplier=1): exit 0.
-    assert_exit 0  "$T2SZ" -S 0 dummy
+    # -S 0 produces a zero maximum block size (0 < multiplier=1): exit 1.
+    assert_exit 1  "$T2SZ" -S 0 dummy
     log_pass "$TEST_NAME"
     ;;
 
 bad_threads)
-    # -T 0 is below the valid minimum of 1 thread: must print usage and exit 0.
-    assert_exit 0  "$T2SZ" -T 0 dummy
+    # -T 0 is below the valid minimum of 1 thread: must print usage and exit 1.
+    assert_exit 1  "$T2SZ" -T 0 dummy
     log_pass "$TEST_NAME"
     ;;
 
 block_S_lt_s)
-    # Maximum block size (-S 1M) smaller than minimum (-s 2M): must exit 0.
-    assert_exit 0  "$T2SZ" -s 2M -S 1M dummy
+    # Maximum block size (-S 1M) smaller than minimum (-s 2M): must exit 1.
+    assert_exit 1  "$T2SZ" -s 2M -S 1M dummy
     log_pass "$TEST_NAME"
     ;;
 
