@@ -138,6 +138,15 @@ If you want to give it access to every file you can install it with `--devmode`.
 
 [![Get it from the Snap Store](https://snapcraft.io/static/images/badges/en/snap-store-black.svg)](https://snapcraft.io/t2sz)
 
+## Homebrew
+
+On Linux and macOS you can install with [Homebrew](https://brew.sh/):
+
+```bash
+brew tap martinellimarco/t2sz
+brew install t2sz
+```
+
 # Testing
 
 The project includes a comprehensive test suite covering round-trip correctness
