@@ -357,8 +357,9 @@ static uint64_t zstdCompressBufferToFrame(const Context *ctx, const uint8_t *src
 static uint64_t zstdEndFrame(const Context *ctx){
     uint64_t compressedSize = 0;
 
-    // Some libzstd builds don't like input == NULL. Use an explicit empty buffer.
-    ZSTD_inBuffer empty = { NULL, 0, 0 };
+    // Some libzstd builds don't like input == NULL, so use a non-NULL dummy.
+    uint8_t dummy = 0;
+    ZSTD_inBuffer empty = { &dummy, 0, 0 };
 
     while(true){
         ZSTD_outBuffer output = { ctx->outBuff, ctx->outBuffSize, 0 };
@@ -941,6 +942,9 @@ int main(int argc, char **argv){
                 if(*endptr != '\0' && multiplier == 1){
                     usage(executable, "ERROR: Invalid block size");
                 }
+                if((size_t)val > SIZE_MAX / multiplier){
+                    usage(executable, "ERROR: Invalid block size");
+                }
                 ctx->minBlockSize = (size_t)val * multiplier;
                 break;
             }
@@ -953,6 +957,9 @@ int main(int argc, char **argv){
                     usage(executable, "ERROR: Invalid block size");
                 }
                 if(*endptr != '\0' && multiplier == 1){
+                    usage(executable, "ERROR: Invalid block size");
+                }
+                if((size_t)val > SIZE_MAX / multiplier){
                     usage(executable, "ERROR: Invalid block size");
                 }
                 ctx->maxBlockSize = (size_t)val * multiplier;
@@ -1040,8 +1047,15 @@ int main(int argc, char **argv){
     }
 
     // Overwrite prompt — skipped when writing to stdout (nothing to overwrite).
-    // ctx->inBuff is NULL here; prepareInput() is called inside compressFile().
+    // In stdinMode an interactive prompt would consume bytes from the input
+    // stream and corrupt the compressed output, so we require -f instead.
     if(!ctx->stdoutMode && !overwrite && access(ctx->outFilename, F_OK) == 0){
+        if(ctx->stdinMode){
+            fprintf(stderr, "ERROR: %s already exists. Use -f to overwrite.\n", ctx->outFilename);
+            free(outFilenameToFree);
+            free(ctx);
+            return EXIT_FAILURE;
+        }
         char ans;
         fprintf(stderr, "%s already exists. Overwrite? [y/N]: ", ctx->outFilename);
         const int res = scanf(" %c", &ans);

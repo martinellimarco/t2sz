@@ -212,6 +212,14 @@ add_error_test(err_unknown_option            unknown_option)
 # ── decodeMultiplier extra suffixes (K/KiB/MiB/G) ─────────────────────────
 add_error_test(err_multiplier_suffixes_extra multiplier_suffixes_extra)
 
+# ── Stdin overwrite protection ────────────────────────────────────────────
+add_error_test(err_stdin_overwrite_no_force  stdin_overwrite_no_force)
+add_error_test(err_stdin_overwrite_force     stdin_overwrite_force)
+
+# ── Overflow guard for -s/-S multiplication ──────────────────────────────
+add_error_test(err_overflow_s               overflow_s)
+add_error_test(err_overflow_S               overflow_S)
+
 # ── seekTableEnsureCap realloc growth (>1024 frames) ──────────────────────
 add_error_test(err_seektable_grow            seektable_grow)
 
@@ -247,6 +255,9 @@ foreach(tname
     err_stdin_explicit_stdout_raw err_stdin_explicit_stdout_tar
     err_bad_level_strtol err_bad_block_s_strtol err_bad_block_S_strtol
     err_bad_threads_strtol err_unknown_option
-    err_multiplier_suffixes_extra err_seektable_grow)
+    err_multiplier_suffixes_extra
+    err_stdin_overwrite_no_force err_stdin_overwrite_force
+    err_overflow_s err_overflow_S
+    err_seektable_grow)
     set_test_env(${tname})
 endforeach()

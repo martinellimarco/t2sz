@@ -647,6 +647,70 @@ multiplier_suffixes_extra)
     log_pass "$TEST_NAME"
     ;;
 
+# ── Stdin overwrite protection ────────────────────────────────────────────
+
+stdin_overwrite_no_force)
+    # Piping data through stdin with an existing output file and no -f flag.
+    # An interactive prompt would corrupt the pipe, so t2sz must refuse with
+    # a clear error message and exit 1 instead of calling scanf().
+    make_small_dat "$WORK/input.dat"
+    printf 'SENTINEL' > "$WORK/existing.zst"
+    RC=0
+    "$T2SZ" -r -o "$WORK/existing.zst" - < "$WORK/input.dat" 2>"$WORK/stderr.txt" || RC=$?
+    [ "$RC" -eq 1 ] || {
+        log_fail "$TEST_NAME — expected exit 1, got $RC"
+        exit 1
+    }
+    # Verify the error message mentions -f
+    if ! grep -q "already exists" "$WORK/stderr.txt" || ! grep -q "\-f" "$WORK/stderr.txt"; then
+        log_fail "$TEST_NAME — expected 'already exists ... -f' on stderr"
+        cat "$WORK/stderr.txt" >&2
+        exit 1
+    fi
+    # Output file must be untouched
+    content=$(cat "$WORK/existing.zst")
+    if [ "$content" != "SENTINEL" ]; then
+        log_fail "$TEST_NAME — output file was modified"
+        exit 1
+    fi
+    log_pass "$TEST_NAME"
+    ;;
+
+stdin_overwrite_force)
+    # Piping data through stdin with an existing output file and -f flag.
+    # Must succeed, overwriting the file without prompting.
+    make_small_dat "$WORK/input.dat"
+    printf 'x' > "$WORK/existing.zst"
+    assert_exit 0  "$T2SZ" -r -f -o "$WORK/existing.zst" - < "$WORK/input.dat"
+    # Verify a valid zstd file was written (larger than 1-byte placeholder).
+    bytes=$(wc -c < "$WORK/existing.zst")
+    [ $((bytes + 0)) -gt 1 ] || {
+        log_fail "$TEST_NAME — output file was not overwritten"
+        exit 1
+    }
+    zstd -t -q "$WORK/existing.zst" 2>/dev/null || {
+        log_fail "$TEST_NAME — output is not valid zstd"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
+# ── Overflow guard for -s/-S multiplication ──────────────────────────────
+
+overflow_s)
+    # A huge numeric value with a large suffix triggers the overflow guard
+    # in case 's': (size_t)val > SIZE_MAX / multiplier → exit 1.
+    # 999999999999 × GiB (1024³) exceeds SIZE_MAX on 64-bit.
+    assert_exit 1  "$T2SZ" -s 999999999999GiB dummy
+    log_pass "$TEST_NAME"
+    ;;
+
+overflow_S)
+    # Same overflow guard for case 'S' (maxBlockSize).
+    assert_exit 1  "$T2SZ" -S 999999999999GiB dummy
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── seekTableEnsureCap realloc growth (>1024 frames) ──────────────────────
 
 seektable_grow)

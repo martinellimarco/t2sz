@@ -11,8 +11,8 @@ The test suite exercises t2sz across three dimensions:
 | **Memory safety**  | AddressSanitizer + UBSanitizer | buffer overflows, use-after-free, undefined behaviour   |
 | **Code coverage**  | LLVM coverage + llvm-cov       | dead or untested code paths                             |
 
-71 tests in total: 30 round-trip tests and 41 CLI/error/edge-case tests.
-All three build configurations run the same 71 tests.
+75 tests in total: 30 round-trip tests and 45 CLI/error/edge-case tests.
+All three build configurations run the same 75 tests.
 
 ---
 
@@ -35,7 +35,7 @@ cmake --build build
 cd build && ctest --output-on-failure
 ```
 
-Expected output: `100% tests passed, 0 tests failed out of 71`
+Expected output: `100% tests passed, 0 tests failed out of 75`
 
 ---
 
@@ -127,6 +127,8 @@ bash ../tests/test_coverage.sh ../build_cov
 | Unknown option      | `err_unknown_option`                                                                                                                       | getopt `'?'` → `switch default` case → `usage("ERROR: Unknown option")` → exit 1                        |
 | File-system errors  | `err_file_not_found`, `err_output_bad_path`, `err_empty_file`                                                                              | `access()` failure, `fopen()` failure in `prepareOutput()`, zero-byte input file (`prepareInput()`)     |
 | Overwrite prompt    | `err_overwrite_no`, `err_overwrite_yes`                                                                                                    | `scanf` branch: answer `n` (no overwrite) and `y` (overwrite)                                           |
+| Stdin overwrite     | `err_stdin_overwrite_no_force`, `err_stdin_overwrite_force`                                                                                | stdinMode + existing file: error without `-f`, success with `-f` (no `scanf` corruption)                |
+| Overflow guard      | `err_overflow_s`, `err_overflow_S`                                                                                                         | `(size_t)val > SIZE_MAX / multiplier` for `-s` and `-S` (huge value × large suffix)                     |
 | Corrupted input     | `err_corrupt_tar`                                                                                                                          | `isTarHeader()` checksum-mismatch path in mmap mode                                                     |
 | Auto raw-mode       | `err_auto_raw`                                                                                                                             | `strEndsWith()` branch: non-`.tar` file treated as raw automatically                                    |
 | Default output name | `err_auto_outname`                                                                                                                         | `getOutFilename()` called when `-o` is omitted                                                          |
