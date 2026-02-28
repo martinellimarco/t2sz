@@ -10,7 +10,7 @@
 #   T2SZ       path to the t2sz binary under test
 #   GEN_BLOB   path to the gen_blob binary
 #   BLOBS_DIR  directory where temporary test files are written
-#   MODE       raw | tar | empty_tar
+#   MODE       raw | tar | empty_tar | stdin
 #   SEED       integer seed for gen_blob (deterministic output)
 #   SIZE       size in bytes of each generated blob
 #   N_FILES    number of blobs (relevant for 'tar' mode; use 1 for 'raw')
@@ -41,6 +41,118 @@ die()  { printf "[ERROR] %s\n" "$*" >&2; exit 1; }
 
 FLAGS_LABEL="$([ $# -gt 0 ] && echo "$*" || echo "none")"
 LABEL="mode=$MODE seed=$SEED size=$SIZE n=$N_FILES flags=$FLAGS_LABEL"
+
+# ── Seek table verification helpers ──────────────────────────────────────────
+
+# Extract the -s value from flags (in bytes), or 0 if -s is not present.
+extract_s_value() {
+    local s_val=0
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            -s) shift; [ $# -gt 0 ] && s_val=$(decode_size_arg "$1") ;;
+        esac
+        shift 2>/dev/null || true
+    done
+    echo "$s_val"
+}
+
+# Check if a specific flag is among the arguments.
+has_flag() {
+    local flag="$1"; shift
+    for arg in "$@"; do
+        [ "$arg" = "$flag" ] && return 0
+    done
+    return 1
+}
+
+# Compute expected frame count for raw mode (mmap path).
+# In mmap mode, when SIZE is an exact multiple of -s, there is an extra empty
+# trailing frame (the loop enters one more iteration with blockSize=0).
+# In stdin mode, fread returns 0 at EOF and the loop exits — no extra frame.
+compute_raw_frames_mmap() {
+    local size="$1"; shift
+    local s_val
+    s_val=$(extract_s_value "$@")
+    if [ "$s_val" -eq 0 ]; then
+        echo 1
+    elif [ $(( size % s_val )) -eq 0 ]; then
+        echo $(( size / s_val + 1 ))
+    else
+        echo $(( (size + s_val - 1) / s_val ))
+    fi
+}
+
+# Compute expected frame count for raw mode (stdin path).
+# No extra trailing frame — fread returns 0 at EOF.
+compute_raw_frames_stdin() {
+    local size="$1"; shift
+    local s_val
+    s_val=$(extract_s_value "$@")
+    if [ "$s_val" -eq 0 ]; then
+        echo 1
+    else
+        echo $(( (size + s_val - 1) / s_val ))
+    fi
+}
+
+# Main seek table verification dispatcher for roundtrip tests.
+# verify_roundtrip_seek_table <compressed> <kind> [kind-args...] -- <flags...>
+#
+# Kinds:
+#   -raw-mmap  <size>  -- <flags>     raw mode via file/mmap path
+#   -raw-stdin <size>  -- <flags>     raw mode via stdin path
+#   -tar       -- <flags>             tar mode (any path)
+#
+# Notes:
+#   - Stdout mode still writes the seek table (it's appended, no seeking needed)
+#   - -j disables the seek table → verify_no_seek_table
+#   - Tar mode: always use verify_seek_table_structure (frame count depends on
+#     platform tar creating PaxHeader/AppleDouble entries, not predictable)
+verify_roundtrip_seek_table() {
+    local compressed="$1" kind="$2"; shift 2
+
+    # Collect kind-specific args until --
+    local kind_args=()
+    while [ $# -gt 0 ] && [ "$1" != "--" ]; do
+        kind_args+=("$1"); shift
+    done
+    [ "$1" = "--" ] && shift
+    # Remaining args are flags
+
+    # -j flag: seek table explicitly disabled
+    if has_flag "-j" "$@"; then
+        verify_no_seek_table "$compressed" || exit 1
+        return
+    fi
+
+    case "$kind" in
+        -raw-mmap)
+            local size="${kind_args[0]}"
+            if has_flag "-s" "$@"; then
+                local expected_frames
+                expected_frames=$(compute_raw_frames_mmap "$size" "$@")
+                verify_seek_table "$compressed" "$expected_frames" || exit 1
+            else
+                verify_seek_table "$compressed" 1 || exit 1
+            fi
+            ;;
+        -raw-stdin)
+            local size="${kind_args[0]}"
+            if has_flag "-s" "$@"; then
+                local expected_frames
+                expected_frames=$(compute_raw_frames_stdin "$size" "$@")
+                verify_seek_table "$compressed" "$expected_frames" || exit 1
+            else
+                verify_seek_table "$compressed" 1 || exit 1
+            fi
+            ;;
+        -tar)
+            # Tar mode: exact frame count depends on platform tar creating
+            # PaxHeader/AppleDouble entries. Use structural check only.
+            verify_seek_table_structure "$compressed" || exit 1
+            ;;
+    esac
+}
 
 # ── Disk-space guard (skip large tests when space is tight) ──────────────────
 # Estimate: need roughly SIZE * N_FILES * 3 (original + compressed + decompressed)
@@ -82,6 +194,7 @@ test_raw() {
     sha_after=$(sha256_file "$decompressed")
 
     if [ "$sha_before" = "$sha_after" ]; then
+        verify_roundtrip_seek_table "$compressed" -raw-mmap "$SIZE" -- "$@"
         log_pass "$LABEL"
     else
         log_fail "$LABEL"
@@ -151,6 +264,7 @@ test_tar() {
     done
 
     if $all_ok; then
+        verify_roundtrip_seek_table "$compressed" -tar -- "$@"
         log_pass "$LABEL"
     else
         exit 1
@@ -190,10 +304,146 @@ test_empty_tar() {
     fi
 }
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# STDIN MODE
+# Exercises reading from stdin ("-") and writing to stdout ("-o -").
+# $1 = sub_mode: raw_to_file | tar_to_file | raw_to_stdout
+# Remaining args ($2+) are forwarded verbatim to t2sz as extra flags.
+# ═══════════════════════════════════════════════════════════════════════════════
+test_stdin() {
+    local sub_mode="$1"; shift
+    local input="$WORK/input.bin"
+    local compressed="$WORK/compressed.zst"
+    local decompressed="$WORK/decompressed.bin"
+
+    log_step "Generating blob (seed=$SEED size=$SIZE)"
+    "$GEN_BLOB" "$SEED" "$SIZE" "$input" || die "gen_blob failed"
+
+    local sha_before
+    sha_before=$(sha256_file "$input")
+
+    case "$sub_mode" in
+    raw_to_file)
+        # Pipe the blob through stdin; t2sz writes the compressed output to a file.
+        log_step "Compressing stdin to file (raw mode)"
+        "$T2SZ" -r -o "$compressed" -f "$@" - < "$input" \
+            || die "t2sz stdin->file failed"
+        zstd -d -f -q "$compressed" -o "$decompressed" || die "zstd decomp failed"
+        local sha_after
+        sha_after=$(sha256_file "$decompressed")
+        if [ "$sha_before" = "$sha_after" ]; then
+            verify_roundtrip_seek_table "$compressed" -raw-stdin "$SIZE" -- "$@"
+            log_pass "$LABEL ($sub_mode)"
+        else
+            log_fail "$LABEL — $sub_mode SHA mismatch"
+            exit 1
+        fi
+        ;;
+    tar_to_file)
+        # Pack the blob into a tar archive, pipe via stdin, compress in tar mode.
+        (cd "$WORK" && cp input.bin blob.bin && COPYFILE_DISABLE=1 tar cf archive.tar blob.bin) \
+            || die "tar creation failed"
+        log_step "Compressing tar from stdin to file"
+        "$T2SZ" -o "$compressed" -f "$@" - < "$WORK/archive.tar" \
+            || die "t2sz stdin-tar->file failed"
+        zstd -d -f -q "$compressed" -o "$WORK/dec.tar" || die "zstd decomp failed"
+        mkdir -p "$WORK/extracted"
+        tar xf "$WORK/dec.tar" -C "$WORK/extracted" || die "tar extraction failed"
+        local sha_after
+        sha_after=$(sha256_file "$WORK/extracted/blob.bin")
+        if [ "$sha_before" = "$sha_after" ]; then
+            verify_roundtrip_seek_table "$compressed" -tar -- "$@"
+            log_pass "$LABEL ($sub_mode)"
+        else
+            log_fail "$LABEL — $sub_mode SHA mismatch"
+            exit 1
+        fi
+        ;;
+    raw_to_stdout)
+        # Pipe the blob through stdin; no -o so t2sz defaults output to stdout.
+        log_step "Compressing stdin to stdout (raw mode, no -o)"
+        "$T2SZ" -r "$@" - < "$input" > "$compressed" \
+            || die "t2sz stdin->stdout failed"
+        zstd -d -f -q "$compressed" -o "$decompressed" || die "zstd decomp failed"
+        local sha_after
+        sha_after=$(sha256_file "$decompressed")
+        if [ "$sha_before" = "$sha_after" ]; then
+            verify_roundtrip_seek_table "$compressed" -raw-stdin "$SIZE" -- "$@"
+            log_pass "$LABEL ($sub_mode)"
+        else
+            log_fail "$LABEL — $sub_mode SHA mismatch"
+            exit 1
+        fi
+        ;;
+    tar_multi_to_file)
+        # Create N_FILES blobs, pack into tar, compress via stdin, decompress, verify all.
+        local blob_list=()
+        local i
+        for i in $(seq 1 "$N_FILES"); do
+            local bseed=$(( SEED * 1000 + i ))
+            local bname="blob_${bseed}.bin"
+            local bpath="$WORK/$bname"
+            log_step "Generating $bname (seed=$bseed size=$SIZE)"
+            "$GEN_BLOB" "$bseed" "$SIZE" "$bpath" || die "gen_blob failed for file $i"
+            sha256_file "$bpath" > "$WORK/sha_${bname}.txt"
+            blob_list+=("$bname")
+        done
+        (cd "$WORK" && COPYFILE_DISABLE=1 tar cf archive.tar "${blob_list[@]}") \
+            || die "tar creation failed"
+        log_step "Compressing multi-file tar from stdin to file"
+        "$T2SZ" -o "$compressed" -f "$@" - < "$WORK/archive.tar" \
+            || die "t2sz stdin-tar-multi->file failed"
+        zstd -d -f -q "$compressed" -o "$WORK/dec.tar" || die "zstd decomp failed"
+        mkdir -p "$WORK/extracted"
+        tar xf "$WORK/dec.tar" -C "$WORK/extracted" || die "tar extraction failed"
+        local all_ok=true
+        for bname in "${blob_list[@]}"; do
+            local expected actual
+            expected=$(cat "$WORK/sha_${bname}.txt")
+            actual=$(sha256_file "$WORK/extracted/$bname")
+            if [ "$expected" != "$actual" ]; then
+                log_fail "$LABEL — $sub_mode SHA256 mismatch for $bname"
+                all_ok=false
+            fi
+        done
+        if $all_ok; then
+            verify_roundtrip_seek_table "$compressed" -tar -- "$@"
+            log_pass "$LABEL ($sub_mode)"
+        else
+            exit 1
+        fi
+        ;;
+    tar_to_stdout)
+        # Pack blob into tar, pipe via stdin, write to stdout, decompress, verify.
+        (cd "$WORK" && cp input.bin blob.bin && COPYFILE_DISABLE=1 tar cf archive.tar blob.bin) \
+            || die "tar creation failed"
+        log_step "Compressing tar from stdin to stdout"
+        "$T2SZ" "$@" - < "$WORK/archive.tar" > "$compressed" \
+            || die "t2sz stdin-tar->stdout failed"
+        zstd -d -f -q "$compressed" -o "$WORK/dec.tar" || die "zstd decomp failed"
+        mkdir -p "$WORK/extracted"
+        tar xf "$WORK/dec.tar" -C "$WORK/extracted" || die "tar extraction failed"
+        local sha_after
+        sha_after=$(sha256_file "$WORK/extracted/blob.bin")
+        if [ "$sha_before" = "$sha_after" ]; then
+            verify_roundtrip_seek_table "$compressed" -tar -- "$@"
+            log_pass "$LABEL ($sub_mode)"
+        else
+            log_fail "$LABEL — $sub_mode SHA mismatch"
+            exit 1
+        fi
+        ;;
+    *)
+        die "Unknown stdin sub_mode: '$sub_mode'. Valid: raw_to_file | tar_to_file | raw_to_stdout | tar_multi_to_file | tar_to_stdout"
+        ;;
+    esac
+}
+
 # ── Dispatch ─────────────────────────────────────────────────────────────────
 case "$MODE" in
     raw)       test_raw       "$@" ;;
     tar)       test_tar       "$@" ;;
     empty_tar) test_empty_tar "$@" ;;
-    *)         die "Unknown test mode: '$MODE'. Valid: raw | tar | empty_tar" ;;
+    stdin)     test_stdin     "$@" ;;
+    *)         die "Unknown test mode: '$MODE'. Valid: raw | tar | empty_tar | stdin" ;;
 esac

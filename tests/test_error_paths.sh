@@ -259,6 +259,415 @@ multiplier_suffixes)
     log_pass "$TEST_NAME"
     ;;
 
+# ── Stdin / stdout support ────────────────────────────────────────────────────
+
+stdin_empty_raw)
+    # Compressing empty stdin in raw mode: t2sz must not crash, must exit 0,
+    # and must produce a valid (empty) zstd output file.
+    assert_exit 0  "$T2SZ" -r -o "$WORK/empty.zst" -f - < /dev/null
+    [ -f "$WORK/empty.zst" ] || {
+        log_fail "$TEST_NAME — no output file produced"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
+stdin_default_stdout)
+    # With "-" as input and no -o, output must go to stdout by default.
+    # Verify the captured stdout is a valid zstd stream.
+    make_small_dat "$WORK/input.dat"
+    "$T2SZ" -r - < "$WORK/input.dat" > "$WORK/out.zst" 2>/dev/null || {
+        log_fail "$TEST_NAME — t2sz exited non-zero"
+        exit 1
+    }
+    zstd -t -q "$WORK/out.zst" 2>/dev/null || {
+        log_fail "$TEST_NAME — stdout output is not a valid zstd stream"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
+stdin_file_stdout)
+    # -o - with a regular file input must send compressed output to stdout.
+    make_small_dat "$WORK/input.dat"
+    "$T2SZ" -r -o - -f "$WORK/input.dat" > "$WORK/out.zst" 2>/dev/null || {
+        log_fail "$TEST_NAME — t2sz exited non-zero"
+        exit 1
+    }
+    zstd -t -q "$WORK/out.zst" 2>/dev/null || {
+        log_fail "$TEST_NAME — stdout output is not a valid zstd stream"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
+# ── Stdin streaming error paths ──────────────────────────────────────────────
+
+stdin_corrupt_tar)
+    # Corrupted tar via stdin → isTarHeader() failure in compressStdinTar.
+    make_small_tar "$WORK/corrupt.tar"
+    printf '\xff\xff\xff\xff\xff\xff\xff\xff' \
+        | dd of="$WORK/corrupt.tar" bs=1 seek=148 count=8 conv=notrunc 2>/dev/null
+    assert_nonzero "$T2SZ" -o "$WORK/out.zst" -f - < "$WORK/corrupt.tar"
+    log_pass "$TEST_NAME"
+    ;;
+
+stdin_empty_tar)
+    # Empty tar (tar with zero-byte file) via stdin — exercises isZeroTarBlock().
+    # Must not crash. Non-zero exit is acceptable (like the mmap empty_tar test).
+    touch "$WORK/empty"
+    (cd "$WORK" && COPYFILE_DISABLE=1 tar cf empty.tar empty) || {
+        log_fail "$TEST_NAME — tar creation failed"
+        exit 1
+    }
+    RC=0
+    "$T2SZ" -o "$WORK/out.zst" -f - < "$WORK/empty.tar" 2>/dev/null || RC=$?
+    if [ "$RC" -gt 128 ]; then
+        log_fail "$TEST_NAME — killed by signal $(( RC - 128 ))"
+        exit 1
+    fi
+    log_pass "$TEST_NAME — exited $RC (no crash)"
+    ;;
+
+stdin_truncated_tar)
+    # Partial 512-byte header on stdin → "Truncated tar header" error.
+    # Send exactly 256 zero bytes: fread returns 256, r != 512 triggers the error.
+    dd if=/dev/zero of="$WORK/partial.bin" bs=1 count=256 2>/dev/null
+    assert_nonzero "$T2SZ" -o "$WORK/out.zst" -f - < "$WORK/partial.bin"
+    log_pass "$TEST_NAME"
+    ;;
+
+stdin_truncated_payload)
+    # Tar header declares a file but data is cut short → readExactStdin() EOF.
+    make_small_tar "$WORK/good.tar"
+    # good.tar ≈ 2048B: 512B header + 512B data block + 1024B end blocks.
+    # Truncate to 768B: header complete, only 256 of 512 data bytes remain.
+    dd if="$WORK/good.tar" of="$WORK/trunc.tar" bs=1 count=768 2>/dev/null
+    assert_nonzero "$T2SZ" -o "$WORK/out.zst" -f - < "$WORK/trunc.tar"
+    log_pass "$TEST_NAME"
+    ;;
+
+stdout_tar_file)
+    # -o - with a tar file input must produce valid zstd on stdout (mmap + stdout).
+    make_small_tar "$WORK/input.tar"
+    "$T2SZ" -o - -f "$WORK/input.tar" > "$WORK/out.zst" 2>/dev/null || {
+        log_fail "$TEST_NAME — t2sz failed"
+        exit 1
+    }
+    zstd -t -q "$WORK/out.zst" 2>/dev/null || {
+        log_fail "$TEST_NAME — stdout output is not a valid zstd stream"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
+empty_file)
+    # A zero-byte input file must trigger "Empty input file" error in prepareInput().
+    touch "$WORK/empty.bin"
+    assert_nonzero "$T2SZ" -r -o "$WORK/out.zst" -f "$WORK/empty.bin"
+    log_pass "$TEST_NAME"
+    ;;
+
+# ── Seek table structural verification ──────────────────────────────────────
+
+noseek_verify)
+    # Compress with -j and verify the seekable-zstd magic is truly absent.
+    # Covers writeSeekTable() gating via ctx->skipSeekTable.
+    make_small_dat "$WORK/input.dat"
+    assert_exit 0  "$T2SZ" -r -j -o "$WORK/out.zst" -f "$WORK/input.dat"
+    verify_no_seek_table "$WORK/out.zst" || {
+        log_fail "$TEST_NAME — seek table magic found despite -j"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
+# ── Raw -s with non-multiple input size ─────────────────────────────────────
+
+raw_nonmultiple_s)
+    # Input size 1000001 bytes, -s 256k (262144). Not a multiple.
+    # Expected frames: ceil(1000001 / 262144) = 4 (last frame is 213569 bytes).
+    # Round-trip SHA-256 + seek table verification.
+    dd if=/dev/urandom of="$WORK/input.bin" bs=1 count=1000001 2>/dev/null
+    sha_before=$(sha256_file "$WORK/input.bin")
+    assert_exit 0  "$T2SZ" -r -s 256k -o "$WORK/out.zst" -f "$WORK/input.bin"
+    zstd -d -f -q "$WORK/out.zst" -o "$WORK/dec.bin" || {
+        log_fail "$TEST_NAME — decompression failed"
+        exit 1
+    }
+    sha_after=$(sha256_file "$WORK/dec.bin")
+    if [ "$sha_before" != "$sha_after" ]; then
+        log_fail "$TEST_NAME — SHA mismatch"
+        log_info "before: $sha_before"
+        log_info "after:  $sha_after"
+        exit 1
+    fi
+    verify_seek_table "$WORK/out.zst" 4 || exit 1
+    log_pass "$TEST_NAME"
+    ;;
+
+stdin_raw_nonmultiple_s)
+    # Same as raw_nonmultiple_s but via stdin, exercising compressStdinRaw() Path B.
+    dd if=/dev/urandom of="$WORK/input.bin" bs=1 count=1000001 2>/dev/null
+    sha_before=$(sha256_file "$WORK/input.bin")
+    assert_exit 0  "$T2SZ" -r -s 256k -o "$WORK/out.zst" -f - < "$WORK/input.bin"
+    zstd -d -f -q "$WORK/out.zst" -o "$WORK/dec.bin" || {
+        log_fail "$TEST_NAME — decompression failed"
+        exit 1
+    }
+    sha_after=$(sha256_file "$WORK/dec.bin")
+    if [ "$sha_before" != "$sha_after" ]; then
+        log_fail "$TEST_NAME — SHA mismatch"
+        exit 1
+    fi
+    verify_seek_table "$WORK/out.zst" 4 || exit 1
+    log_pass "$TEST_NAME"
+    ;;
+
+# ── Tar trailing junk after end-of-archive ──────────────────────────────────
+
+trailing_junk_tar)
+    # Create a valid tar, then append 1024 bytes of non-zero junk (0xAA) after
+    # the end-of-archive blocks. Both mmap and stdin paths read until EOF, so
+    # both will encounter the junk, fail isTarHeader(), and exit non-zero.
+    # The test verifies neither path crashes (no signal kill).
+    make_small_tar "$WORK/good.tar"
+    cp "$WORK/good.tar" "$WORK/junk.tar"
+    dd if=/dev/zero bs=1 count=1024 2>/dev/null | tr '\0' '\252' >> "$WORK/junk.tar"
+
+    # mmap path: must not crash (exit non-zero is expected)
+    RC=0
+    "$T2SZ" -o "$WORK/out_mmap.zst" -f "$WORK/junk.tar" 2>/dev/null || RC=$?
+    if [ "$RC" -gt 128 ]; then
+        log_fail "$TEST_NAME — mmap path killed by signal $(( RC - 128 ))"
+        exit 1
+    fi
+    log_step "mmap path exited $RC (no crash)"
+
+    # stdin path: must not crash (exit non-zero is expected)
+    RC=0
+    "$T2SZ" -o "$WORK/out_stdin.zst" -f - < "$WORK/junk.tar" 2>/dev/null || RC=$?
+    if [ "$RC" -gt 128 ]; then
+        log_fail "$TEST_NAME — stdin path killed by signal $(( RC - 128 ))"
+        exit 1
+    fi
+    log_step "stdin path exited $RC (no crash)"
+
+    log_pass "$TEST_NAME"
+    ;;
+
+# ── Non-regular tar entries (dirs, symlinks) ────────────────────────────────
+
+tar_with_dirs_symlinks)
+    # Create a tar containing a directory, a regular file, and a symlink.
+    # The parser ignores typeflag and uses the size field; dirs/symlinks have
+    # size=0 so no data bytes are read. Must not crash and round-trip correctly.
+    mkdir -p "$WORK/content/subdir"
+    printf 'hello from t2sz tests\n' > "$WORK/content/file.txt"
+    ln -s file.txt "$WORK/content/link.txt"
+    (cd "$WORK/content" && COPYFILE_DISABLE=1 tar cf "$WORK/archive.tar" subdir file.txt link.txt) || {
+        log_fail "$TEST_NAME — tar creation failed"
+        exit 1
+    }
+    assert_exit 0  "$T2SZ" -o "$WORK/out.zst" -f "$WORK/archive.tar"
+    zstd -d -f -q "$WORK/out.zst" -o "$WORK/dec.tar" || {
+        log_fail "$TEST_NAME — decompression failed"
+        exit 1
+    }
+    mkdir -p "$WORK/extracted"
+    tar xf "$WORK/dec.tar" -C "$WORK/extracted" || {
+        log_fail "$TEST_NAME — tar extraction failed"
+        exit 1
+    }
+    # Verify the directory exists
+    [ -d "$WORK/extracted/subdir" ] || {
+        log_fail "$TEST_NAME — subdir not extracted"
+        exit 1
+    }
+    # Verify the symlink exists and points to file.txt
+    [ -L "$WORK/extracted/link.txt" ] || {
+        log_fail "$TEST_NAME — link.txt is not a symlink"
+        exit 1
+    }
+    target=$(readlink "$WORK/extracted/link.txt")
+    [ "$target" = "file.txt" ] || {
+        log_fail "$TEST_NAME — symlink target is '$target', expected 'file.txt'"
+        exit 1
+    }
+    # Verify the regular file content
+    expected=$(sha256_file "$WORK/content/file.txt")
+    actual=$(sha256_file "$WORK/extracted/file.txt")
+    [ "$expected" = "$actual" ] || {
+        log_fail "$TEST_NAME — file.txt SHA mismatch"
+        exit 1
+    }
+    # Verify seek table structural integrity
+    verify_seek_table_structure "$WORK/out.zst" || exit 1
+    log_pass "$TEST_NAME"
+    ;;
+
+# ── Explicit -o - with stdin ────────────────────────────────────────────────
+
+stdin_explicit_stdout_raw)
+    # stdin raw mode with explicit -o - (not relying on default stdout).
+    # Exercises the stdoutMode path when both input is stdin and output is explicit stdout.
+    make_small_dat "$WORK/input.dat"
+    sha_before=$(sha256_file "$WORK/input.dat")
+    "$T2SZ" -r -o - -f - < "$WORK/input.dat" > "$WORK/out.zst" 2>/dev/null || {
+        log_fail "$TEST_NAME — t2sz exited non-zero"
+        exit 1
+    }
+    zstd -d -f -q "$WORK/out.zst" -o "$WORK/dec.dat" 2>/dev/null || {
+        log_fail "$TEST_NAME — decompression failed"
+        exit 1
+    }
+    sha_after=$(sha256_file "$WORK/dec.dat")
+    if [ "$sha_before" != "$sha_after" ]; then
+        log_fail "$TEST_NAME — SHA mismatch"
+        exit 1
+    fi
+    log_pass "$TEST_NAME"
+    ;;
+
+stdin_explicit_stdout_tar)
+    # stdin tar mode with explicit -o - (not relying on default stdout).
+    make_small_tar "$WORK/input.tar"
+    "$T2SZ" -o - -f - < "$WORK/input.tar" > "$WORK/out.zst" 2>/dev/null || {
+        log_fail "$TEST_NAME — t2sz exited non-zero"
+        exit 1
+    }
+    zstd -d -f -q "$WORK/out.zst" -o "$WORK/dec.tar" 2>/dev/null || {
+        log_fail "$TEST_NAME — decompression failed"
+        exit 1
+    }
+    mkdir -p "$WORK/extracted"
+    tar xf "$WORK/dec.tar" -C "$WORK/extracted" 2>/dev/null || {
+        log_fail "$TEST_NAME — tar extraction failed"
+        exit 1
+    }
+    # Verify hello.txt from make_small_tar
+    [ -f "$WORK/extracted/hello.txt" ] || {
+        log_fail "$TEST_NAME — hello.txt not found"
+        exit 1
+    }
+    expected="hello t2sz error tests"
+    actual=$(cat "$WORK/extracted/hello.txt")
+    if [ "$actual" != "$expected" ]; then
+        log_fail "$TEST_NAME — content mismatch (got '$actual')"
+        exit 1
+    fi
+    log_pass "$TEST_NAME"
+    ;;
+
+# ── Argument parsing edge cases: strtol failures ────────────────────────────
+
+bad_level_strtol)
+    # Exercises strtol() edge cases in -l argument parsing:
+    #   endptr == optarg (non-numeric), *endptr != '\0' (trailing garbage),
+    #   ERANGE (overflow beyond LONG_MAX), negative value.
+    assert_exit 1  "$T2SZ" -l abc dummy
+    assert_exit 1  "$T2SZ" -l 3abc dummy
+    assert_exit 1  "$T2SZ" -l 99999999999999999999 dummy
+    assert_exit 1  "$T2SZ" -l -1 dummy
+    log_pass "$TEST_NAME"
+    ;;
+
+bad_block_s_strtol)
+    # Exercises strtol() edge cases in -s argument parsing:
+    #   endptr == optarg (non-numeric), ERANGE (overflow), negative value.
+    assert_exit 1  "$T2SZ" -s abc dummy
+    assert_exit 1  "$T2SZ" -s 99999999999999999999 dummy
+    assert_exit 1  "$T2SZ" -s -1 dummy
+    log_pass "$TEST_NAME"
+    ;;
+
+bad_block_S_strtol)
+    # Exercises strtol() edge cases in -S argument parsing:
+    #   endptr == optarg (non-numeric), ERANGE (overflow), negative value.
+    assert_exit 1  "$T2SZ" -S abc dummy
+    assert_exit 1  "$T2SZ" -S 99999999999999999999 dummy
+    assert_exit 1  "$T2SZ" -S -1 dummy
+    log_pass "$TEST_NAME"
+    ;;
+
+bad_threads_strtol)
+    # Exercises strtol() edge cases in -T argument parsing:
+    #   endptr == optarg (non-numeric), *endptr != '\0' (trailing garbage),
+    #   ERANGE (overflow beyond LONG_MAX), val > UINT32_MAX, negative value.
+    assert_exit 1  "$T2SZ" -T abc dummy
+    assert_exit 1  "$T2SZ" -T 2abc dummy
+    assert_exit 1  "$T2SZ" -T 99999999999999999999 dummy
+    assert_exit 1  "$T2SZ" -T 4294967296 dummy
+    assert_exit 1  "$T2SZ" -T -1 dummy
+    log_pass "$TEST_NAME"
+    ;;
+
+# ── Unknown option — getopt '?' → switch default case ──────────────────────
+
+unknown_option)
+    # Unrecognized option -Z triggers getopt '?' → switch default case.
+    # usage(executable, "ERROR: Unknown option") exits with EXIT_FAILURE (1).
+    assert_exit 1  "$T2SZ" -Z dummy 2>/dev/null
+    log_pass "$TEST_NAME"
+    ;;
+
+# ── decodeMultiplier extra suffixes (K/KiB/MiB/G) ─────────────────────────
+
+multiplier_suffixes_extra)
+    # Exercises decodeMultiplier() branches not covered by multiplier_suffixes:
+    #   K (uppercase alone) → 1024, KiB → 1024, MiB → 1024², G → 1024³.
+    # Each suffix variant must produce a valid round-trip with SHA-256 match.
+    make_small_dat "$WORK/input.dat"
+    sha_before=$(sha256_file "$WORK/input.dat")
+
+    assert_exit 0  "$T2SZ" -r -s 1K   -o "$WORK/out_K.zst"   -f "$WORK/input.dat"
+    zstd -d -f -q "$WORK/out_K.zst" -o "$WORK/dec_K.dat" || { log_fail "$TEST_NAME — K decomp failed"; exit 1; }
+    sha_after=$(sha256_file "$WORK/dec_K.dat")
+    [ "$sha_before" = "$sha_after" ] || { log_fail "$TEST_NAME — K SHA mismatch"; exit 1; }
+
+    assert_exit 0  "$T2SZ" -r -s 1KiB -o "$WORK/out_KiB.zst" -f "$WORK/input.dat"
+    zstd -d -f -q "$WORK/out_KiB.zst" -o "$WORK/dec_KiB.dat" || { log_fail "$TEST_NAME — KiB decomp failed"; exit 1; }
+    sha_after=$(sha256_file "$WORK/dec_KiB.dat")
+    [ "$sha_before" = "$sha_after" ] || { log_fail "$TEST_NAME — KiB SHA mismatch"; exit 1; }
+
+    assert_exit 0  "$T2SZ" -r -s 1MiB -o "$WORK/out_MiB.zst" -f "$WORK/input.dat"
+    zstd -d -f -q "$WORK/out_MiB.zst" -o "$WORK/dec_MiB.dat" || { log_fail "$TEST_NAME — MiB decomp failed"; exit 1; }
+    sha_after=$(sha256_file "$WORK/dec_MiB.dat")
+    [ "$sha_before" = "$sha_after" ] || { log_fail "$TEST_NAME — MiB SHA mismatch"; exit 1; }
+
+    assert_exit 0  "$T2SZ" -r -s 1G   -o "$WORK/out_G.zst"   -f "$WORK/input.dat"
+    zstd -d -f -q "$WORK/out_G.zst" -o "$WORK/dec_G.dat" || { log_fail "$TEST_NAME — G decomp failed"; exit 1; }
+    sha_after=$(sha256_file "$WORK/dec_G.dat")
+    [ "$sha_before" = "$sha_after" ] || { log_fail "$TEST_NAME — G SHA mismatch"; exit 1; }
+
+    log_pass "$TEST_NAME"
+    ;;
+
+# ── seekTableEnsureCap realloc growth (>1024 frames) ──────────────────────
+
+seektable_grow)
+    # Compress 1049600 bytes (1025 × 1024) with -s 1k to produce 1026 frames
+    # (1025 data blocks + 1 trailing empty frame for exact multiple in mmap).
+    # This exceeds the initial seek table capacity (1024 entries), triggering
+    # seekTableEnsureCap() to grow: realloc from 1024 → 2048 entries.
+    # Covers both branch (180:21) ctx->seekTableCap ternary True path
+    # and branch (181:12) while(newCap < needed) loop body.
+    dd if=/dev/urandom of="$WORK/input.bin" bs=1024 count=1025 2>/dev/null
+    sha_before=$(sha256_file "$WORK/input.bin")
+    assert_exit 0  "$T2SZ" -r -s 1k -o "$WORK/out.zst" -f "$WORK/input.bin"
+    zstd -d -f -q "$WORK/out.zst" -o "$WORK/dec.bin" || {
+        log_fail "$TEST_NAME — decompression failed"
+        exit 1
+    }
+    sha_after=$(sha256_file "$WORK/dec.bin")
+    if [ "$sha_before" != "$sha_after" ]; then
+        log_fail "$TEST_NAME — SHA mismatch"
+        exit 1
+    fi
+    verify_seek_table "$WORK/out.zst" 1026 || exit 1
+    log_pass "$TEST_NAME"
+    ;;
+
 *)
     log_fail "unknown test name '$TEST_NAME'"
     exit 1

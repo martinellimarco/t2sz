@@ -12,7 +12,7 @@ file(MAKE_DIRECTORY ${BLOBS_DIR})
 # ── helper: register a round-trip test ───────────────────────────────────────
 # add_roundtrip_test(name MODE SEED SIZE N_FILES [T2SZ_FLAGS...])
 #
-#   MODE     : raw | tar | empty_tar
+#   MODE     : raw | tar | empty_tar | stdin
 #   SEED     : integer seed for gen_blob
 #   SIZE     : file size in bytes (per file)
 #   N_FILES  : number of files in the tar (1 for raw; ignored for empty_tar)
@@ -147,6 +147,74 @@ add_error_test(err_auto_outname      auto_outname)
 # ── decodeMultiplier metric suffixes (GiB/kB/KB/MB/GB) ───────────────────────
 add_error_test(err_multiplier_suffixes  multiplier_suffixes)
 
+# ── Stdin / stdout support ────────────────────────────────────────────────────
+# Each sub_mode is passed as the first positional arg after N_FILES; the test
+# script uses it to select the stdin/stdout scenario to exercise.
+add_roundtrip_test(stdin_raw_to_file   stdin  30  1048576  1  raw_to_file)
+add_roundtrip_test(stdin_tar_to_file   stdin  31  1048576  1  tar_to_file)
+add_roundtrip_test(stdin_raw_to_stdout stdin  32  1048576  1  raw_to_stdout)
+
+add_error_test(err_stdin_empty_raw      stdin_empty_raw)
+add_error_test(err_stdin_default_stdout stdin_default_stdout)
+add_error_test(err_stdin_file_stdout    stdin_file_stdout)
+
+# ── Stdin + raw mode with flags ──────────────────────────────────────────────
+add_roundtrip_test(stdin_raw_s256k        stdin  33  1048576    1   raw_to_file  -s  256k)
+add_roundtrip_test(stdin_raw_noseek       stdin  34  1048576    1   raw_to_file  -j)
+add_roundtrip_test(stdin_raw_v            stdin  35  1048576    1   raw_to_file  -v)
+
+# ── Stdin + tar mode with flags (single file) ───────────────────────────────
+add_roundtrip_test(stdin_tar_S1M          stdin  36  5242880    1   tar_to_file  -S  1M)
+add_roundtrip_test(stdin_tar_v            stdin  37  1048576    1   tar_to_file  -v)
+
+# ── Stdin + tar mode with flags (multi file) ────────────────────────────────
+add_roundtrip_test(stdin_tar_multi        stdin  38  524288     10  tar_multi_to_file)
+add_roundtrip_test(stdin_tar_multi_s512k  stdin  39  102400     10  tar_multi_to_file  -s  512k)
+add_roundtrip_test(stdin_tar_multi_sS     stdin  40  524288     10  tar_multi_to_file  -s  256k  -S  2M)
+
+# ── Stdin → stdout (full pipe, tar mode) ─────────────────────────────────────
+add_roundtrip_test(stdin_tar_to_stdout    stdin  41  1048576    1   tar_to_stdout)
+
+# ── Stdin streaming error paths ──────────────────────────────────────────────
+add_error_test(err_stdin_corrupt_tar       stdin_corrupt_tar)
+add_error_test(err_stdin_empty_tar         stdin_empty_tar)
+add_error_test(err_stdin_truncated_tar     stdin_truncated_tar)
+add_error_test(err_stdin_truncated_payload stdin_truncated_payload)
+add_error_test(err_stdout_tar_file         stdout_tar_file)
+add_error_test(err_empty_file              empty_file)
+
+# ── Seek table structural verification ──────────────────────────────────────
+add_error_test(err_noseek_verify             noseek_verify)
+
+# ── Raw -s with non-multiple input size ─────────────────────────────────────
+add_error_test(err_raw_nonmultiple_s         raw_nonmultiple_s)
+add_error_test(err_stdin_raw_nonmultiple_s   stdin_raw_nonmultiple_s)
+
+# ── Tar trailing junk after end-of-archive ──────────────────────────────────
+add_error_test(err_trailing_junk_tar         trailing_junk_tar)
+
+# ── Non-regular tar entries (dirs, symlinks) ────────────────────────────────
+add_error_test(err_tar_with_dirs_symlinks    tar_with_dirs_symlinks)
+
+# ── Explicit -o - with stdin ────────────────────────────────────────────────
+add_error_test(err_stdin_explicit_stdout_raw stdin_explicit_stdout_raw)
+add_error_test(err_stdin_explicit_stdout_tar stdin_explicit_stdout_tar)
+
+# ── Argument parsing edge cases: strtol failures, negative, overflow ───────
+add_error_test(err_bad_level_strtol          bad_level_strtol)
+add_error_test(err_bad_block_s_strtol        bad_block_s_strtol)
+add_error_test(err_bad_block_S_strtol        bad_block_S_strtol)
+add_error_test(err_bad_threads_strtol        bad_threads_strtol)
+
+# ── Unknown option — getopt default case ────────────────────────────────────
+add_error_test(err_unknown_option            unknown_option)
+
+# ── decodeMultiplier extra suffixes (K/KiB/MiB/G) ─────────────────────────
+add_error_test(err_multiplier_suffixes_extra multiplier_suffixes_extra)
+
+# ── seekTableEnsureCap realloc growth (>1024 frames) ──────────────────────
+add_error_test(err_seektable_grow            seektable_grow)
+
 # ── Apply COVERAGE / SANITIZE env vars to all tests ──────────────────────────
 foreach(tname
     raw_1mb raw_100mb
@@ -162,6 +230,23 @@ foreach(tname
     err_file_not_found err_output_bad_path
     err_overwrite_no err_overwrite_yes
     err_corrupt_tar err_auto_raw
-    err_auto_outname err_multiplier_suffixes)
+    err_auto_outname err_multiplier_suffixes
+    stdin_raw_to_file stdin_tar_to_file stdin_raw_to_stdout
+    err_stdin_empty_raw err_stdin_default_stdout err_stdin_file_stdout
+    stdin_raw_s256k stdin_raw_noseek stdin_raw_v
+    stdin_tar_S1M stdin_tar_v
+    stdin_tar_multi stdin_tar_multi_s512k stdin_tar_multi_sS
+    stdin_tar_to_stdout
+    err_stdin_corrupt_tar err_stdin_empty_tar
+    err_stdin_truncated_tar err_stdin_truncated_payload
+    err_stdout_tar_file err_empty_file
+    err_noseek_verify
+    err_raw_nonmultiple_s err_stdin_raw_nonmultiple_s
+    err_trailing_junk_tar
+    err_tar_with_dirs_symlinks
+    err_stdin_explicit_stdout_raw err_stdin_explicit_stdout_tar
+    err_bad_level_strtol err_bad_block_s_strtol err_bad_block_S_strtol
+    err_bad_threads_strtol err_unknown_option
+    err_multiplier_suffixes_extra err_seektable_grow)
     set_test_env(${tname})
 endforeach()

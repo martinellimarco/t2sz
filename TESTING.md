@@ -4,14 +4,15 @@
 
 The test suite exercises t2sz across three dimensions:
 
-| Dimension         | Tool                           | What it catches                                         |
-|-------------------|--------------------------------|---------------------------------------------------------|
-| **Correctness**   | round-trip + SHA-256           | compression/decompression produces bit-identical output |
-| **Memory safety** | AddressSanitizer + UBSanitizer | buffer overflows, use-after-free, undefined behaviour   |
-| **Code coverage** | LLVM coverage + llvm-cov       | dead or untested code paths                             |
+| Dimension          | Tool                           | What it catches                                         |
+|--------------------|--------------------------------|---------------------------------------------------------|
+| **Correctness**    | round-trip + SHA-256           | compression/decompression produces bit-identical output |
+| **Seek table**     | binary footer parsing          | seek table presence, magic numbers, frame count         |
+| **Memory safety**  | AddressSanitizer + UBSanitizer | buffer overflows, use-after-free, undefined behaviour   |
+| **Code coverage**  | LLVM coverage + llvm-cov       | dead or untested code paths                             |
 
-36 tests in total: 18 round-trip tests and 18 CLI/error/edge-case tests.
-All three build configurations run the same 36 tests.
+71 tests in total: 30 round-trip tests and 41 CLI/error/edge-case tests.
+All three build configurations run the same 71 tests.
 
 ---
 
@@ -34,7 +35,7 @@ cmake --build build
 cd build && ctest --output-on-failure
 ```
 
-Expected output: `100% tests passed, 0 tests failed out of 36`
+Expected output: `100% tests passed, 0 tests failed out of 71`
 
 ---
 
@@ -90,6 +91,8 @@ bash ../tests/test_coverage.sh ../build_cov
 
 ## Test categories
 
+### File input (mmap path)
+
 | Category                  | Tests                                                                                                                                      | What is covered                                                      |
 |---------------------------|--------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
 | Raw round-trip — baseline | `raw_1mb`, `raw_100mb`                                                                                                                     | basic `-r` compression + SHA-256 verification                        |
@@ -100,13 +103,46 @@ bash ../tests/test_coverage.sh ../build_cov
 | Tar round-trip — large    | `tar_500mb`                                                                                                                                | 500 MB tar (auto-skipped if disk < 5 GB)                             |
 | Verbose mode              | `tar_single_v`, `raw_1mb_v`                                                                                                                | all `-v` logging paths in `compressFile()` and `writeSeekTable()`    |
 | Edge cases                | `empty_tar`, `tar_unaligned`                                                                                                               | zero-byte file in tar; file size not aligned to 512 bytes            |
-| CLI validation            | `err_no_args`, `err_too_many_args`, `err_bad_level_*`, `err_bad_block_*`, `err_bad_threads`, `err_block_S_lt_s`, `err_help`, `err_version` | all `usage()` and argument-check branches                            |
-| File-system errors        | `err_file_not_found`, `err_output_bad_path`                                                                                                | `access()` failure, `fopen()` failure in `prepareOutput()`           |
-| Overwrite prompt          | `err_overwrite_no`, `err_overwrite_yes`                                                                                                    | `scanf` branch: answer `n` (no overwrite) and `y` (overwrite)        |
-| Corrupted input           | `err_corrupt_tar`                                                                                                                          | `isTarHeader()` checksum-mismatch path → `exit(-1)`                  |
-| Auto raw-mode             | `err_auto_raw`                                                                                                                             | `strEndsWith()` branch: non-`.tar` file treated as raw automatically |
-| Default output name       | `err_auto_outname`                                                                                                                         | `getOutFilename()` called when `-o` is omitted                       |
-| Size suffixes             | `err_multiplier_suffixes`                                                                                                                  | `decodeMultiplier()` branches for `GiB`, `kB`, `KB`, `MB`, `GB`      |
+
+### Stdin / stdout (streaming path)
+
+| Category                   | Tests                                                                                                    | What is covered                                                                                                                                       |
+|----------------------------|----------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Stdin raw — baseline       | `stdin_raw_to_file`, `stdin_raw_to_stdout`                                                               | `compressStdinRaw()` single-frame streaming (pledged unknown)                                                                                         |
+| Stdin raw — flags          | `stdin_raw_s256k`, `stdin_raw_noseek`, `stdin_raw_v`                                                     | `compressStdinRaw()` fixed-frame path (`-s`), skip seek table (`-j`), verbose                                                                         |
+| Stdin tar — single file    | `stdin_tar_to_file`, `stdin_tar_S1M`, `stdin_tar_v`                                                      | `compressStdinTar()` baseline, maxBlockSize splitting (`-S`), verbose                                                                                 |
+| Stdin tar — multi file     | `stdin_tar_multi`, `stdin_tar_multi_s512k`, `stdin_tar_multi_sS`                                         | multi-file tar from stdin, minBlockSize aggregation (`-s`), combined (`-s` + `-S`)                                                                    |
+| Stdin → stdout (full pipe) | `stdin_tar_to_stdout`                                                                                    | stdin and stdout simultaneously in tar mode                                                                                                           |
+| Stdin error paths          | `err_stdin_empty_raw`, `err_stdin_default_stdout`, `err_stdin_file_stdout`                               | empty stdin, default stdout fallback, explicit `-o -`                                                                                                 |
+| Stdin streaming errors     | `err_stdin_corrupt_tar`, `err_stdin_empty_tar`, `err_stdin_truncated_tar`, `err_stdin_truncated_payload` | `isTarHeader()` failure via stdin, `isZeroTarBlock()` zero-block handling, truncated header (`r != 512`), `readExactStdin()` EOF on truncated payload |
+| Stdout from file           | `err_stdout_tar_file`                                                                                    | mmap path with `-o -` (stdout output from file input, tar mode)                                                                                       |
+| Explicit `-o -` + stdin    | `err_stdin_explicit_stdout_raw`, `err_stdin_explicit_stdout_tar`                                         | stdoutMode set via explicit `-o -` when input is also stdin, raw and tar modes                                                                        |
+
+### CLI validation and error paths
+
+| Category            | Tests                                                                                                                                      | What is covered                                                                                     |
+|---------------------|--------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|
+| CLI validation      | `err_no_args`, `err_too_many_args`, `err_bad_level_*`, `err_bad_block_*`, `err_bad_threads`, `err_block_S_lt_s`, `err_help`, `err_version` | all `usage()` and argument-check branches                                                           |
+| strtol edge cases   | `err_bad_level_strtol`, `err_bad_block_s_strtol`, `err_bad_block_S_strtol`, `err_bad_threads_strtol`                                       | `endptr == optarg`, `*endptr != '\0'`, `ERANGE`, negative values, `val > UINT32_MAX`                |
+| Unknown option      | `err_unknown_option`                                                                                                                       | getopt `'?'` → `switch default` case → `usage(NULL)`                                                |
+| File-system errors  | `err_file_not_found`, `err_output_bad_path`, `err_empty_file`                                                                              | `access()` failure, `fopen()` failure in `prepareOutput()`, zero-byte input file (`prepareInput()`) |
+| Overwrite prompt    | `err_overwrite_no`, `err_overwrite_yes`                                                                                                    | `scanf` branch: answer `n` (no overwrite) and `y` (overwrite)                                       |
+| Corrupted input     | `err_corrupt_tar`                                                                                                                          | `isTarHeader()` checksum-mismatch path in mmap mode                                                 |
+| Auto raw-mode       | `err_auto_raw`                                                                                                                             | `strEndsWith()` branch: non-`.tar` file treated as raw automatically                                |
+| Default output name | `err_auto_outname`                                                                                                                         | `getOutFilename()` called when `-o` is omitted                                                      |
+| Size suffixes       | `err_multiplier_suffixes`, `err_multiplier_suffixes_extra`                                                                                 | `decodeMultiplier()` all branches: `GiB`, `kB`, `KB`, `MB`, `GB`, `K`, `KiB`, `MiB`, `G`            |
+
+### Seek table and structural verification
+
+| Category                  | Tests                         | What is covered                                                                                  |
+|---------------------------|-------------------------------|--------------------------------------------------------------------------------------------------|
+| Seek table on-disk        | all 30 round-trip tests       | every round-trip verifies seek table magic, descriptor, Frame_Size, and Number_Of_Frames on disk |
+| No-seek-table (`-j`)      | `err_noseek_verify`           | verifies seekable magic `0x8F92EAB1` is absent when `-j` flag is used                            |
+| Non-multiple `-s` (mmap)  | `err_raw_nonmultiple_s`       | 1000001 bytes with `-s 256k`: partial last frame + seek table with 4 frames                      |
+| Non-multiple `-s` (stdin) | `err_stdin_raw_nonmultiple_s` | same via stdin: `compressStdinRaw()` Path B partial last frame                                   |
+| Trailing junk after tar   | `err_trailing_junk_tar`       | 1024 bytes of 0xAA appended after end-of-archive: both mmap and stdin must not crash             |
+| Non-regular tar entries   | `err_tar_with_dirs_symlinks`  | directory + symlink + regular file: round-trip + seek table structure verification               |
+| Seek table capacity grow  | `err_seektable_grow`          | 1025×1k raw → 1026 frames, forces `seekTableEnsureCap()` realloc from 1024 to 2048 entries       |
 
 Large tests (`raw_1gb`, `tar_500mb`) return exit code 77 when disk space is insufficient; CTest treats this as a skip rather than a failure.
 
@@ -114,26 +150,22 @@ Large tests (`raw_1gb`, `tar_500mb`) return exit code 77 when disk space is insu
 
 ## Coverage results
 
-Current numbers measured on macOS Apple Silicon (AppleClang 17, libzstd 1.5.x):
+Current numbers measured on macOS Apple Silicon (AppleClang 17, libzstd 1.5.x).
+Re-run `tests/test_coverage.sh` after changes to get exact figures.
 
-| Metric    | Coverage            |
-|-----------|---------------------|
-| Functions | **100%** (18 / 18)  |
-| Lines     | **91%** (395 / 434) |
-| Regions   | **91%**             |
-| Branches  | **89%**             |
+### What is not covered (and why)
 
-### Why not 100% lines?
+The uncovered lines consist of defensive error-handling branches that cannot be
+reached without hardware or environment conditions outside normal test execution:
 
-The remaining 9% consists of error-handling branches that cannot be reached
-without hardware or environment conditions outside normal test execution:
-
-- **Big-endian path in `writeLE32`** — x86 and ARM are always little-endian.
-- **`prepareInput` failures** — `open()` after a successful `access()` (TOCTOU race); `mmap()` failure requires OS-level fault injection.
+- **Big-endian path in `writeLE32`** — x86-64 and ARM64 are always little-endian.
+- **`prepareInput` I/O failures** — `open()` after a successful `access()` (TOCTOU race); `mmap()` failure requires OS-level fault injection.
 - **`prepareCctx` failures** — `ZSTD_createCCtx()` returning NULL requires memory exhaustion; parameter errors require a broken libzstd build.
 - **`compressFile` fatal paths** — "This is a bug" branch is structurally unreachable; `ZSTD_compressStream2` error requires a corrupt compression context.
 - **`seekTableAdd` overflow guards** — triggered only by > 134 million frames or a single block > 2 GB.
 - **Multi-thread fallback** — requires libzstd built without `ZSTD_MULTITHREAD`.
+- **`malloc` failure paths** — `newContext()`, `getOutFilename()`, `prepareOutput()`, `compressStdinRaw()`, `compressStdinTar()` all have OOM guards that require memory exhaustion.
+- **`ferror(stdin)` paths** — `compressStdinRaw()` and `compressStdinTar()` handle read errors on stdin, but bash pipe redirection does not simulate I/O errors.
 
 These are defensive guards, not untested logic.
 
