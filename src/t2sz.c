@@ -60,11 +60,10 @@ uint32_t checksum(TarHeader* header){
 bool isTarHeader(TarHeader* header){
     const uint32_t chksum = checksum(header);
 
-    char* buf = malloc(7);
+    char buf[7];
     memcpy(buf, header->chksum, 6);
     buf[6] = 0;
     const uint32_t hdrChksum = strtoul(buf, NULL, 8);
-    free(buf);
 
     if(chksum != hdrChksum){
         fprintf(stderr, "ERROR: Mismatching checksum. Expected 0x%08x but found 0x%08x.\n", chksum, hdrChksum);
