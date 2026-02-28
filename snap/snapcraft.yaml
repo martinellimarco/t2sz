@@ -1,12 +1,12 @@
 name: t2sz
 base: core20
-version: '1.1.2'
-summary: It compress any file into a seekable .zstd file
+version: '1.2.0'
+summary: It compresses a file into a seekable .zstd file
 description: |
-  It compress a file into a seekable zstd splitting the file into multiple frames.
-  If the file is a tar archive it compress each file in the archive into an independent frame, hence the name: tar 2 seekable zstd.
+  It compresses a file into a seekable zstd splitting the file into multiple frames.
+  If the file is a tar archive it compresses each file in the archive into an independent frame, hence the name: tar 2 seekable zstd.
   This allows fast seeking and extraction of a single file without decompressing the whole archive.
-  The compressed archive can be uncompressed with any Zstandard tool, including zstd, and it can also be mounted with ratarmount.
+  The compressed archive can be decompressed with any Zstandard tool, including zstd, and it can also be mounted with ratarmount.
   
 
 grade: stable

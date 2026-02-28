@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(t2sz VERSION 1.1.2 LANGUAGES C)
+project(t2sz VERSION 1.2.0 LANGUAGES C)
 
 add_definitions(-DVERSION="${PROJECT_VERSION}")
 
@@ -63,11 +63,11 @@ set(CPACK_GENERATOR "DEB")
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Marco Martinelli <marco+t2sz@13byte.com>")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "tar 2 seekable zstd.\nIt will compress a tar archive with Zstandard keeping each file in a different frame, for fast seeking.\nThe compressed archive can be uncompressed with any Zstandard tool, including zstd.")
+set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "tar 2 seekable zstd.\nIt compresses a tar archive with Zstandard keeping each file in a different frame, for fast seeking.\nThe compressed archive can be decompressed with any Zstandard tool, including zstd.")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/martinellimarco/t2sz")
 
 #set(CPACK_RPM_PACKAGE_AUTOREQ ON)
-#set(CPACK_RPM_PACKAGE_DESCRIPTION "tar 2 seekable zstd.\nIt will compress a tar archive with Zstandard keeping each file in a different frame, for fast seeking.\nThe compressed archive can be uncompressed with any Zstandard tool, including zstd.")
+#set(CPACK_RPM_PACKAGE_DESCRIPTION "tar 2 seekable zstd.\nIt compresses a tar archive with Zstandard keeping each file in a different frame, for fast seeking.\nThe compressed archive can be decompressed with any Zstandard tool, including zstd.")
 #set(CPACK_RPM_PACKAGE_URL "https://github.com/martinellimarco/t2sz")
 #set(CPACK_RPM_PACKAGE_LICENSE "GPLv3")
 
