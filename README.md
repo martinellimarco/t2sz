@@ -151,5 +151,7 @@ brew install t2sz
 
 The project includes a comprehensive test suite covering round-trip correctness
 (compress → decompress → SHA-256 verify), memory safety (AddressSanitizer +
-UBSanitizer), and code coverage (LLVM). See [TESTING.md](TESTING.md) for
+UBSanitizer), and code coverage (LLVM).
+
+See [TESTING.md](TESTING.md) for
 prerequisites, build configurations, and the full list of test cases.

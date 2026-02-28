@@ -1039,7 +1039,7 @@ int main(int argc, char **argv){
         char ans;
         fprintf(stderr, "%s already exists. Overwrite? [y/N]: ", ctx->outFilename);
         const int res = scanf(" %c", &ans);
-        if(res && ans != 'y'){
+        if(res != 1 || ans != 'y'){
             free(outFilenameToFree);
             free(ctx);
             return EXIT_SUCCESS;
