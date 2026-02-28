@@ -3,7 +3,7 @@ project(t2sz VERSION 1.1.2 LANGUAGES C)
 
 add_definitions(-DVERSION="${PROJECT_VERSION}")
 
-set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD 17)
 
 # --- Optional: sanitizers and coverage (mutually exclusive) ---
 option(SANITIZE "Enable AddressSanitizer + UndefinedBehaviorSanitizer" OFF)

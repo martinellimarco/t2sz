@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
+set(CMAKE_C_STANDARD 17)
+
 # ── gen_blob: deterministic binary generator ─────────────────────────────────
 add_executable(gen_blob gen_blob.c)
 
