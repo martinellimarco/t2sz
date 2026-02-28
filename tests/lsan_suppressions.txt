@@ -1,0 +1,14 @@
+# t2sz is a short-lived CLI tool. All allocations below are at-exit leaks
+# that the OS reclaims immediately on process termination.
+
+# Seek table: a linked list of SeekTableEntry nodes allocated in
+# newSeekTableEntry() during compression, never freed before exit.
+leak:newSeekTableEntry
+
+# Output filename: string allocated by getOutFilename() when no -o flag
+# is given; stored in ctx->outFilename and never explicitly freed.
+leak:getOutFilename
+
+# Context struct: not freed on the early-return path at main() line 590,
+# when the user answers 'n' to the overwrite prompt.
+leak:main
