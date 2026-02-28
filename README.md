@@ -161,3 +161,10 @@ UBSanitizer), and code coverage (LLVM).
 
 See [TESTING.md](TESTING.md) for
 prerequisites, build configurations, and the full list of test cases.
+
+## Fuzzing
+
+The project includes [libFuzzer](https://llvm.org/docs/LibFuzzer.html) harnesses
+for fuzz-testing the tar header parser and the streaming compression paths.
+
+See [FUZZING.md](FUZZING.md) for build instructions and usage.

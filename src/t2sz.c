@@ -1243,20 +1243,21 @@ size_t decodeMultiplier(const char *suffix){
 }
 
 /**
- * Entry point — parse CLI options, configure the context, and compress.
+ * Parse command-line options and populate the Context.
  *
- * Handles option parsing (getopt), input/output filename resolution,
- * stdin/stdout mode detection, overwrite prompting, and raw-mode
- * auto-detection based on the ".tar" extension. On success, calls
- * compressFile() and returns EXIT_SUCCESS.
+ * Processes all getopt flags, validates argument counts and mutual
+ * constraints (e.g. maxBlockSize >= minBlockSize), sets the input
+ * filename, and auto-detects stdin/raw mode.
  *
- * @param argc  Argument count.
- * @param argv  Argument vector.
- * @return      EXIT_SUCCESS on success, EXIT_FAILURE on error.
+ * On invalid arguments the function calls usage() which calls exit().
+ * The caller's argc/argv are not modified (local copies are adjusted).
+ *
+ * @param argc      Argument count.
+ * @param argv      Argument vector.
+ * @param ctx       Context to populate.
+ * @param overwrite Pointer set to true if -f is given.
  */
-int main(int argc, char **argv){
-    Context *ctx = newContext();
-    bool overwrite = false;
+static void parseArgs(int argc, char **argv, Context *ctx, bool *overwrite){
     const char* executable = argv[0];
 
     int ch;
@@ -1329,7 +1330,7 @@ int main(int argc, char **argv){
                 ctx->verbose = true;
                 break;
             case 'f':
-                overwrite = true;
+                *overwrite = true;
                 break;
             case 'V':
                 version();
@@ -1368,6 +1369,25 @@ int main(int argc, char **argv){
     if(!ctx->rawMode && !ctx->stdinMode){
         ctx->rawMode = !strEndsWith(ctx->inFilename, "tar");
     }
+}
+
+/**
+ * Entry point — parse CLI options, configure the context, and compress.
+ *
+ * Handles option parsing (via parseArgs), input/output filename resolution,
+ * overwrite prompting, and calls compressFile(). On success returns
+ * EXIT_SUCCESS.
+ *
+ * @param argc  Argument count.
+ * @param argv  Argument vector.
+ * @return      EXIT_SUCCESS on success, EXIT_FAILURE on error.
+ */
+#ifndef T2SZ_NO_MAIN
+int main(int argc, char **argv){
+    Context *ctx = newContext();
+    bool overwrite = false;
+
+    parseArgs(argc, argv, ctx, &overwrite);
 
     // File existence check — not applicable for stdin.
     if(!ctx->stdinMode && access(ctx->inFilename, F_OK) != 0){
@@ -1417,3 +1437,4 @@ int main(int argc, char **argv){
 
     return EXIT_SUCCESS;
 }
+#endif /* T2SZ_NO_MAIN */
