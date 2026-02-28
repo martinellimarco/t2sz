@@ -261,11 +261,11 @@ void prepareCctx(Context *ctx){
     }
 
     if(ctx->workers){
-        err = ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, ctx->workers);
+        err = ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, (int32_t)ctx->workers);
         if(ZSTD_isError(err)){
             fprintf(stderr, "ERROR: Multi-thread is supported only with libzstd >= 1.5.0 or on older versions compiled with ZSTD_MULTITHREAD. Reverting to single-thread.\n");
             ctx->workers = 0;
-            ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, ctx->workers);
+            ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, (int32_t)ctx->workers);
         }
     }
 }
