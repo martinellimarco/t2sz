@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /*
  * gen_blob.c — Deterministic binary blob generator
  *

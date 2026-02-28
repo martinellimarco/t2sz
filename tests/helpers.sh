@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # helpers.sh — Shared utilities for the t2sz test suite
 #
 # Source this file from other test scripts:

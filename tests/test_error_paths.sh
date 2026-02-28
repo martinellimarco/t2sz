@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # test_error_paths.sh — CLI validation and error-path tests for t2sz.
 #
 # Each invocation exercises exactly one error or edge-case code path that is

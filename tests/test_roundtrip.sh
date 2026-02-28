@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # test_roundtrip.sh — Round-trip integration test for t2sz
 #
 # Called by CTest via tests/CMakeLists.txt add_roundtrip_test().

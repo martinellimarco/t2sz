@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # test_coverage.sh — Generate LLVM HTML coverage report from a coverage build
 #
 # Prerequisites:
