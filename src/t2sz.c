@@ -43,7 +43,7 @@ typedef struct __attribute__((__packed__)) { /* byte offset */
 } TarHeader;
 
 uint32_t checksum(TarHeader* header){
-    uint8_t* ptr = (uint8_t*)header;
+    const uint8_t* ptr = (uint8_t*)header;
     uint32_t ac = 0;
 
     while (ptr < (uint8_t*)&header->chksum) ac += *ptr++;
@@ -57,12 +57,12 @@ uint32_t checksum(TarHeader* header){
 }
 
 bool isTarHeader(TarHeader* header){
-    uint32_t chksum = checksum(header);
+    const uint32_t chksum = checksum(header);
 
     char* buf = malloc(7);
     memcpy(buf, header->chksum, 6);
     buf[6] = 0;
-    uint32_t hdrChksum = strtoul(buf, NULL, 8);
+    const uint32_t hdrChksum = strtoul(buf, NULL, 8);
     free(buf);
 
     if(chksum != hdrChksum){
@@ -115,11 +115,11 @@ bool isLittleEndian(){
     return *(char*)(&x) == 1;
 }
 
-void writeLE32(void* dst, uint32_t data){
+void writeLE32(void* dst, const uint32_t data){
     if(isLittleEndian()){
         memcpy(dst, &data, sizeof(data));
     }else{
-        uint32_t swap = ((data & 0xFF000000) >> 24) |
+        const uint32_t swap = ((data & 0xFF000000) >> 24) |
                         ((data & 0x00FF0000) >> 8)  |
                         ((data & 0x0000FF00) << 8)  |
                         ((data & 0x000000FF) << 24);
@@ -127,7 +127,7 @@ void writeLE32(void* dst, uint32_t data){
     }
 }
 
-void writeSeekTable(Context *ctx){
+void writeSeekTable(const Context *ctx){
     uint8_t buf[4];
     //Skippable_Magic_Number
     writeLE32(buf, ZSTD_MAGIC_SKIPPABLE_START | 0xE);
@@ -143,7 +143,7 @@ void writeSeekTable(Context *ctx){
     }
 
     //Seek_Table_Entries
-    for(SeekTableEntry* e = ctx->seekTable; e; e = e->next){
+    for(const SeekTableEntry* e = ctx->seekTable; e; e = e->next){
         //Compressed_Size
         writeLE32(buf, e->compressedSize);
         fwrite(buf, 4, 1, ctx->outFile);
@@ -171,7 +171,7 @@ void writeSeekTable(Context *ctx){
     fwrite(buf, 4, 1, ctx->outFile);
 }
 
-SeekTableEntry* newSeekTableEntry(uint32_t compressedSize, uint32_t decompressedSize){
+SeekTableEntry* newSeekTableEntry(const uint32_t compressedSize, const uint32_t decompressedSize){
     SeekTableEntry* e = malloc(sizeof(SeekTableEntry));
     memset(e, 0, sizeof(SeekTableEntry));
     e->compressedSize = compressedSize;
@@ -179,7 +179,7 @@ SeekTableEntry* newSeekTableEntry(uint32_t compressedSize, uint32_t decompressed
     return e;
 }
 
-void seekTableAdd(Context* ctx, uint64_t compressedSize, uint64_t decompressedSize){
+void seekTableAdd(Context* ctx, const uint64_t compressedSize, const uint64_t decompressedSize){
     if(ctx->skipSeekTable){
         return;
     }
@@ -215,7 +215,7 @@ Context* newContext(){
 }
 
 void prepareInput(Context *ctx){
-    int fd = open(ctx->inFilename, O_RDONLY, 0);
+    const int fd = open(ctx->inFilename, O_RDONLY, 0);
     if(fd < 0){
         fprintf(stderr, "ERROR: Unable to open '%s'\n", ctx->inFilename);
         exit(1);
@@ -310,11 +310,11 @@ void compressFile(Context *ctx){
                     if(isTarHeader(header)){
                         size_t size = strtoul(header->size, NULL, 8);
 
-                        size_t mod = size%512;
+                        const size_t mod = size%512;
                         if(mod){
                             size = size - mod + 512;
                         }
-                        size_t toNextHeader  = size + 512;
+                        const size_t toNextHeader  = size + 512;
 
                         tarHeaderIdx += toNextHeader;
                         blockSize += toNextHeader;
@@ -477,13 +477,13 @@ void usage(const char *name, const char *str){
 }
 
 bool strEndsWith(const char * str, const char * suf){
-    size_t strLen = strlen(str);
-    size_t sufLen = strlen(suf);
+    const size_t strLen = strlen(str);
+    const size_t sufLen = strlen(suf);
 
     return (strLen >= sufLen) && (0 == strcmp(str + (strLen - sufLen), suf));
 }
 
-size_t decodeMultiplier(char *arg){
+size_t decodeMultiplier(const char *arg){
     size_t multiplier = 1;
     if(strEndsWith(arg, "k") || strEndsWith(arg, "K") || strEndsWith(arg, "KiB")){
         multiplier = 1024;
@@ -504,7 +504,7 @@ size_t decodeMultiplier(char *arg){
 int main(int argc, char **argv){
     Context *ctx = newContext();
     bool overwrite = false;
-    char* executable = argv[0];
+    const char* executable = argv[0];
 
     int ch;
     while ((ch = getopt(argc, argv, "l:o:s:S:T:rjVfvh")) != -1) {
@@ -519,7 +519,7 @@ int main(int argc, char **argv){
                 ctx->outFilename = optarg;
                 break;
             case 's': {
-                size_t multiplier = decodeMultiplier(optarg);
+                const size_t multiplier = decodeMultiplier(optarg);
                 ctx->minBlockSize = atoi(optarg) * multiplier;
                 if(ctx->minBlockSize < multiplier){
                     usage(executable, "ERROR: Invalid block size");
@@ -527,7 +527,7 @@ int main(int argc, char **argv){
                 break;
             }
             case 'S': {
-                size_t multiplier = decodeMultiplier(optarg);
+                const size_t multiplier = decodeMultiplier(optarg);
                 ctx->maxBlockSize = atoi(optarg) * multiplier;
                 if(ctx->maxBlockSize < multiplier){
                     usage(executable, "ERROR: Invalid block size");
@@ -594,7 +594,7 @@ int main(int argc, char **argv){
     if(!overwrite && access(ctx->outFilename, F_OK ) == 0){
         char ans;
         fprintf(stderr, "%s already exists. Overwrite? [y/N]: ", ctx->outFilename);
-        int res = scanf(" %c", &ans);
+        const int res = scanf(" %c", &ans);
         if(res && ans!='y'){
             free(outFilenameToFree);
             free(ctx);

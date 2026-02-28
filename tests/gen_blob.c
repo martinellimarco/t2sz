@@ -25,7 +25,7 @@ static uint64_t xorshift64(uint64_t *state) {
     return (*state = x);
 }
 
-int main(int argc, char *argv[]) {
+int main(const int argc, char *argv[]) {
     if (argc != 4) {
         fprintf(stderr, "Usage: %s <seed> <size_bytes> <output_file>\n", argv[0]);
         return 1;
