@@ -202,13 +202,13 @@ overwrite_yes)
 
 corrupt_tar)
     # A tar archive whose header checksum field has been corrupted must cause
-    # t2sz to exit non-zero, covering the isTarHeader() checksum-mismatch path
-    # and the "Invalid tar header" error branch in compressFile().
+    # t2sz to exit with EXIT_FAILURE, covering the isTarHeader() checksum-mismatch
+    # path and the "Invalid tar header" error branch in compressFile().
     make_small_tar "$WORK/corrupt.tar"
     # Overwrite the 8-byte checksum field at byte offset 148 with 0xFF bytes.
     # 0xFF is not a valid octal digit, so strtoul() returns 0, which cannot
-    # match the real computed checksum, triggering the false return from
-    # isTarHeader() and the subsequent exit(-1) in compressFile().
+    # match the real computed checksum, causing isTarHeader() to return false
+    # and compressFile() to report an invalid tar header and exit with failure.
     printf '\xff\xff\xff\xff\xff\xff\xff\xff' \
         | dd of="$WORK/corrupt.tar" bs=1 seek=148 count=8 conv=notrunc 2>/dev/null
     assert_nonzero  "$T2SZ" -o "$WORK/out.zst" -f "$WORK/corrupt.tar"

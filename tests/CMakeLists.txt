@@ -6,7 +6,7 @@ set(CMAKE_C_STANDARD 17)
 add_executable(gen_blob gen_blob.c)
 
 # ── blobs directory (created at configure time) ──────────────────────────────
-set(BLOBS_DIR ${CMAKE_CURRENT_SOURCE_DIR}/blobs)
+set(BLOBS_DIR ${CMAKE_CURRENT_BINARY_DIR}/blobs)
 file(MAKE_DIRECTORY ${BLOBS_DIR})
 
 # ── helper: register a round-trip test ───────────────────────────────────────
