@@ -1,3 +1,4 @@
+//SPDX-License-Identifier: GPL-3.0-or-later
 /* ******************************************************************
  * t2sz
  * Copyright (c) 2020, Martinelli Marco
@@ -86,7 +87,9 @@ typedef struct {
     size_t minBlockSize;
     size_t maxBlockSize;
     bool verbose;
-    bool rawMode; //non-tar mode
+    bool rawMode;     //non-tar mode
+    bool stdinMode;   //input is "-" (stdin)
+    bool stdoutMode;  //output is "-" (stdout)
     uint32_t workers;
 
     //input buffer
@@ -171,7 +174,7 @@ void writeSeekTable(const Context *ctx){
     fwrite(buf, 4, 1, ctx->outFile);
 }
 
-static void seekTableEnsureCap(Context* ctx, size_t needed) {
+static void seekTableEnsureCap(Context* ctx, const size_t needed) {
     if (ctx->seekTableCap >= needed) return;
 
     size_t newCap = ctx->seekTableCap ? ctx->seekTableCap : 1024; // start cap
@@ -217,38 +220,65 @@ void seekTableAdd(Context* ctx, const uint64_t compressedSize, const uint64_t de
 
 Context* newContext(){
     Context* ctx = malloc(sizeof(Context));
+    if(!ctx){
+        fprintf(stderr, "ERROR: Out of memory allocating new context\n");
+        exit(EXIT_FAILURE);
+    }
     memset(ctx, 0, sizeof(Context));
     ctx->level = 3;
-    ctx->seekTable = NULL;
-    ctx->seekTableLen = 0;
-    ctx->seekTableCap = 0;
     return ctx;
 }
 
 void prepareInput(Context *ctx){
+    if(ctx->stdinMode){
+        // The stdin path is handled by compressStdinRaw()/compressStdinTar().
+        return;
+    }
+
     const int fd = open(ctx->inFilename, O_RDONLY, 0);
     if(fd < 0){
         fprintf(stderr, "ERROR: Unable to open '%s'\n", ctx->inFilename);
         exit(EXIT_FAILURE);
     }
-    ctx->inBuffSize = lseek(fd, 0L, SEEK_END);
+
+    const off_t end = lseek(fd, 0, SEEK_END);
+    if(end < 0){
+        fprintf(stderr, "ERROR: Unable to seek '%s'\n", ctx->inFilename);
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+    if(end == 0){
+        fprintf(stderr, "ERROR: Empty input file '%s'\n", ctx->inFilename);
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+    ctx->inBuffSize = (size_t)end;
 
     ctx->inBuff = (uint8_t*)mmap(NULL, ctx->inBuffSize, PROT_READ, MAP_PRIVATE, fd, 0);
     if(ctx->inBuff == MAP_FAILED){
         fprintf(stderr, "ERROR: Unable to mmap '%s'\n", ctx->inFilename);
+        close(fd);
         exit(EXIT_FAILURE);
     }
     close(fd);
 }
 
 void prepareOutput(Context *ctx){
-    ctx->outFile = fopen(ctx->outFilename, "wb");
-    if(!ctx->outFile){
-        fprintf(stderr, "ERROR: Cannot open output file for writing\n");
-        exit(EXIT_FAILURE);
+    if(ctx->stdoutMode){
+        ctx->outFile = stdout;
+    }else{
+        ctx->outFile = fopen(ctx->outFilename, "wb");
+        if(!ctx->outFile){
+            fprintf(stderr, "ERROR: Cannot open output file for writing\n");
+            exit(EXIT_FAILURE);
+        }
     }
     ctx->outBuffSize = ZSTD_CStreamOutSize();
     ctx->outBuff = malloc(ctx->outBuffSize);
+    if(!ctx->outBuff){
+        fprintf(stderr, "ERROR: Out of memory allocating output buffer\n");
+        exit(EXIT_FAILURE);
+    }
 }
 
 void prepareCctx(Context *ctx){
@@ -281,130 +311,493 @@ void prepareCctx(Context *ctx){
     }
 }
 
-void compressFile(Context *ctx){
-    prepareInput(ctx);
+static void zstdResetFrame(const Context *ctx){
+    const size_t err = ZSTD_CCtx_reset(ctx->cctx, ZSTD_reset_session_only);
+    if(ZSTD_isError(err)){
+        fprintf(stderr, "ERROR: Can't reset ZSTD session: %s\n", ZSTD_getErrorName(err));
+        exit(EXIT_FAILURE);
+    }
+}
 
+static void zstdSetPledged(const Context *ctx, const unsigned long long size, const bool known){
+    const size_t err = ZSTD_CCtx_setPledgedSrcSize(ctx->cctx, known ? size : ZSTD_CONTENTSIZE_UNKNOWN);
+    if (ZSTD_isError(err)) {
+        fprintf(stderr, "ERROR: Can't set pledged size: %s\n", ZSTD_getErrorName(err));
+        exit(EXIT_FAILURE);
+    }
+}
+
+static uint64_t zstdCompressBufferToFrame(const Context *ctx, const uint8_t *src, const size_t srcSize){
+    // Compress exactly one frame from a memory buffer, with known size.
+    zstdResetFrame(ctx);
+    zstdSetPledged(ctx, srcSize, true);
+
+    ZSTD_inBuffer input = { src, srcSize, 0 };
+    uint64_t compressedSize = 0;
+
+    while(true){
+        ZSTD_outBuffer output = { ctx->outBuff, ctx->outBuffSize, 0 };
+        const ZSTD_EndDirective mode = (input.pos < input.size) ? ZSTD_e_continue : ZSTD_e_end;
+
+        const size_t remaining = ZSTD_compressStream2(ctx->cctx, &output, &input, mode);
+        if(ZSTD_isError(remaining)){
+            fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(remaining));
+            exit(EXIT_FAILURE);
+        }
+        compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
+
+        if(mode == ZSTD_e_end && remaining == 0){
+            break;
+        }
+    }
+
+    return compressedSize;
+}
+
+static uint64_t zstdEndFrame(const Context *ctx){
+    uint64_t compressedSize = 0;
+
+    // Some libzstd builds don't like input == NULL. Use an explicit empty buffer.
+    ZSTD_inBuffer empty = { NULL, 0, 0 };
+
+    while(true){
+        ZSTD_outBuffer output = { ctx->outBuff, ctx->outBuffSize, 0 };
+        const size_t remaining = ZSTD_compressStream2(ctx->cctx, &output, &empty, ZSTD_e_end);
+        if(ZSTD_isError(remaining)){
+            fprintf(stderr, "ERROR: Can't end frame: %s\n", ZSTD_getErrorName(remaining));
+            exit(EXIT_FAILURE);
+        }
+        compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
+        if(remaining == 0) {
+            break;
+        }
+    }
+    return compressedSize;
+}
+
+static void compressStdinRaw(Context *ctx){
+    // Two behaviours:
+    // - If -s is set (minBlockSize > 0): read exactly one frame worth of bytes into a frame buffer,
+    //   then compress it as an independent frame with correct pledged size.
+    // - If -s is not set: stream into a single frame (pledged unknown), matching original "whole file" raw behaviour.
+
+    if(ctx->minBlockSize == 0){
+        // Single-frame streaming, pledged unknown
+        zstdResetFrame(ctx);
+        zstdSetPledged(ctx, 0, false);
+
+        const size_t inChunk = ZSTD_CStreamInSize();
+        uint8_t *inBuf = malloc(inChunk);
+        if (!inBuf) {
+            fprintf(stderr, "ERROR: Out of memory allocating stdin buffer\n");
+            exit(EXIT_FAILURE);
+        }
+
+        uint64_t decompressedSize = 0;
+        uint64_t compressedSize = 0;
+
+        while(true){
+            const size_t n = fread(inBuf, 1, inChunk, stdin);
+            if(n > 0){
+                decompressedSize += n;
+
+                ZSTD_inBuffer input = { inBuf, n, 0 };
+                while(input.pos < input.size){
+                    ZSTD_outBuffer output = { ctx->outBuff, ctx->outBuffSize, 0 };
+                    const size_t remaining = ZSTD_compressStream2(ctx->cctx, &output, &input, ZSTD_e_continue);
+                    if(ZSTD_isError(remaining)){
+                        fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(remaining));
+                        free(inBuf);
+                        exit(EXIT_FAILURE);
+                    }
+                    compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
+                }
+            }
+
+            if (n == 0) {
+                if (ferror(stdin)) {
+                    fprintf(stderr, "ERROR: Read error on stdin\n");
+                    free(inBuf);
+                    exit(EXIT_FAILURE);
+                }
+                // EOF
+                break;
+            }
+        }
+
+        compressedSize += zstdEndFrame(ctx);
+
+        seekTableAdd(ctx, compressedSize, decompressedSize);
+
+        free(inBuf);
+        return;
+    }
+
+    // Fixed-size frames: buffer exactly one frame at a time (bounded memory = minBlockSize)
+    const size_t frameSize = ctx->minBlockSize;
+    uint8_t *frameBuf = malloc(frameSize);
+    if(!frameBuf){
+        fprintf(stderr, "ERROR: Out of memory allocating %zu-byte frame buffer\n", frameSize);
+        exit(EXIT_FAILURE);
+    }
+
+    while(true){
+        size_t got = 0;
+        while(got < frameSize){
+            const size_t n = fread(frameBuf + got, 1, frameSize - got, stdin);
+            if(n > 0){
+                got += n;
+                continue;
+            }
+            if(ferror(stdin)){
+                fprintf(stderr, "ERROR: Read error on stdin\n");
+                free(frameBuf);
+                exit(EXIT_FAILURE);
+            }
+            // EOF
+            break;
+        }
+
+        if(got == 0){
+            break; // no more data
+        }
+
+        const uint64_t compressedSize = zstdCompressBufferToFrame(ctx, frameBuf, got);
+        seekTableAdd(ctx, compressedSize, got);
+
+        if(got < frameSize) {
+            break; // last partial frame (EOF)
+        }
+    }
+
+    free(frameBuf);
+}
+
+static bool isZeroTarBlock(const uint8_t *b){
+    for(size_t i = 0; i < 512; i++){
+        if(b[i] != 0) return false;
+    }
+    return true;
+}
+
+static void readExactStdin(uint8_t *dst, const size_t n){
+    size_t got = 0;
+    while(got < n){
+        const size_t r = fread(dst + got, 1, n - got, stdin);
+        if(r == 0){
+            if(feof(stdin)){
+                fprintf(stderr, "ERROR: Unexpected EOF on stdin\n");
+            }else{
+                fprintf(stderr, "ERROR: Read error on stdin\n");
+            }
+            exit(EXIT_FAILURE);
+        }
+        got += r;
+    }
+}
+
+static void startFrameUnknown(const Context *ctx, uint64_t *frameIn, uint64_t *frameOut, bool *frameOpen){
+    zstdResetFrame(ctx);
+    zstdSetPledged(ctx, 0, false); // unknown size
+    *frameIn = 0;
+    *frameOut = 0;
+    *frameOpen = true;
+}
+
+static void endFrameAndRecord(Context *ctx, const uint64_t frameIn, uint64_t frameOut, bool *frameOpen){
+    if(!*frameOpen){
+        return;
+    }
+
+    frameOut += zstdEndFrame(ctx);
+
+    seekTableAdd(ctx, frameOut, frameIn);
+    *frameOpen = false;
+}
+
+static void pushBytesTar(Context *ctx, const uint8_t *src, const size_t n, uint64_t *frameIn, uint64_t *frameOut, bool *frameOpen){
+    size_t off = 0;
+    while(off < n){
+        if(!*frameOpen){
+            startFrameUnknown(ctx, frameIn, frameOut, frameOpen);
+        }
+
+        // If maxBlockSize is set, never exceed it.
+        size_t canWrite = n - off;
+        if(ctx->maxBlockSize){
+            if(*frameIn >= ctx->maxBlockSize){
+                // current frame full -> close and open next
+                endFrameAndRecord(ctx, *frameIn, *frameOut, frameOpen);
+                continue;
+            }
+            const size_t left = ctx->maxBlockSize - (size_t)(*frameIn);
+            if(canWrite > left) canWrite = left;
+        }
+
+        ZSTD_inBuffer in = { src + off, canWrite, 0 };
+        while(in.pos < in.size){
+            ZSTD_outBuffer out = { ctx->outBuff, ctx->outBuffSize, 0 };
+            const size_t rem = ZSTD_compressStream2(ctx->cctx, &out, &in, ZSTD_e_continue);
+            if(ZSTD_isError(rem)){
+                fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(rem));
+                exit(EXIT_FAILURE);
+            }
+            *frameOut += fwrite(ctx->outBuff, 1, out.pos, ctx->outFile);
+        }
+
+        *frameIn += canWrite;
+        off += canWrite;
+
+        // If we exactly filled maxBlockSize, close immediately (split).
+        if(ctx->maxBlockSize && *frameIn >= ctx->maxBlockSize){
+            endFrameAndRecord(ctx, *frameIn, *frameOut, frameOpen);
+        }
+    }
+}
+
+static void compressStdinTar(Context *ctx){
+    // Default tar behaviour matches mmap-path:
+    // - if minBlockSize==0: "one file per frame"
+    // - if minBlockSize>0: aggregate whole files until >= min, then close at file boundary
+    // - if maxBlockSize>0: split so frames never exceed max (may split inside a file)
+
+    const size_t inChunk = ZSTD_CStreamInSize();
+    uint8_t *chunkBuf = malloc(inChunk);
+    if(!chunkBuf){
+        fprintf(stderr, "ERROR: Out of memory allocating tar stdin chunk buffer\n");
+        exit(EXIT_FAILURE);
+    }
+
+    uint8_t hdrBlock[512];
+
+    uint64_t frameIn = 0, frameOut = 0;
+    bool frameOpen = false;
+
+    while(true){
+        // Read next 512-byte tar header/block
+        const size_t r = fread(hdrBlock, 1, 512, stdin);
+        if(r == 0){
+            if(ferror(stdin)){
+                fprintf(stderr, "ERROR: Read error on stdin\n");
+                free(chunkBuf);
+                exit(EXIT_FAILURE);
+            }
+            // EOF
+            break;
+        }
+        if(r != 512){
+            // partial header => truncated stream
+            fprintf(stderr, "ERROR: Truncated tar header on stdin\n");
+            free(chunkBuf);
+            exit(EXIT_FAILURE);
+        }
+
+        // Always include the 512-byte block in the stream (like your mmap logic does).
+        pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
+
+        if(isZeroTarBlock(hdrBlock)){
+            if(ctx->verbose){
+                fprintf(stderr, "+ <null>\n");
+            }
+
+            // In "one file per frame" mode, also close after a null block (matches mmap behaviour when -s is 0)
+            if(ctx->minBlockSize == 0 && frameOpen){
+                endFrameAndRecord(ctx, frameIn, frameOut, &frameOpen);
+            }
+            continue;
+        }
+
+        TarHeader *header = (TarHeader*)hdrBlock;
+        if(!isTarHeader(header)){
+            fprintf(stderr, "ERROR: Invalid tar header. If this is not a tar archive use raw mode (-r)\n");
+            free(chunkBuf);
+            exit(EXIT_FAILURE);
+        }
+
+        const size_t fileSize = strtoul(header->size, NULL, 8);
+
+        // pad to 512
+        size_t padded = fileSize;
+        const size_t mod = padded % 512;
+        if(mod) padded = padded - mod + 512;
+
+        if(ctx->verbose){
+            fprintf(stderr, "+ %s (%zu)\n", header->name, padded);
+        }
+
+        // Stream payload+pads: read exactly 'padded' bytes from stdin, push through compressor,
+        // respecting maxBlockSize splitting.
+        size_t remaining = padded;
+        while(remaining > 0){
+            const size_t take = remaining > inChunk ? inChunk : remaining;
+            readExactStdin(chunkBuf, take);
+            pushBytesTar(ctx, chunkBuf, take, &frameIn, &frameOut, &frameOpen);
+            remaining -= take;
+        }
+
+        // End-of-file boundary: decide whether to close frame
+        if(ctx->minBlockSize == 0){
+            // one file per frame
+            if(frameOpen){
+                endFrameAndRecord(ctx, frameIn, frameOut, &frameOpen);
+            }
+        }else{
+            // aggregated blocks: close only at file boundary when >= minBlockSize
+            if(frameOpen && frameIn >= ctx->minBlockSize){
+                endFrameAndRecord(ctx, frameIn, frameOut, &frameOpen);
+            }
+        }
+    }
+
+    // If stream ended without the 2 zero blocks (truncated tar), still close whatever was open.
+    if(frameOpen){
+        endFrameAndRecord(ctx, frameIn, frameOut, &frameOpen);
+    }
+
+    free(chunkBuf);
+}
+
+static void cleanupCompression(const Context *ctx){
+    if(!ctx->skipSeekTable){
+        writeSeekTable(ctx);
+    }
+    free(ctx->seekTable);
+    ZSTD_freeCCtx(ctx->cctx);
+    if(!ctx->stdoutMode){
+        fclose(ctx->outFile);
+    }else{
+        fflush(ctx->outFile);
+    }
+    free(ctx->outBuff);
+}
+
+void compressFile(Context *ctx){
     prepareOutput(ctx);
 
     prepareCctx(ctx);
 
-    size_t tarHeaderIdx = 0;
-    uint8_t* readBuff = ctx->inBuff;
-
-    bool lastChunk = false;
-    size_t residual = 0;
-    while(!lastChunk) {
-        size_t blockSize = 0;
+    if(ctx->stdinMode){
         if(ctx->rawMode){
-            if(ctx->minBlockSize){
-                blockSize = ctx->minBlockSize;
-                if(readBuff+blockSize > ctx->inBuff+ctx->inBuffSize){
-                    blockSize = ctx->inBuff+ctx->inBuffSize - readBuff;
+            compressStdinRaw(ctx);
+        }else{
+            compressStdinTar(ctx);
+        }
+
+        cleanupCompression(ctx);
+    }else{
+        prepareInput(ctx);
+
+        size_t tarHeaderIdx = 0;
+        uint8_t* readBuff = ctx->inBuff;
+
+        bool lastChunk = false;
+        size_t residual = 0;
+        while(!lastChunk) {
+            size_t blockSize = 0;
+            if(ctx->rawMode){
+                if(ctx->minBlockSize){
+                    blockSize = ctx->minBlockSize;
+                    if(readBuff+blockSize > ctx->inBuff+ctx->inBuffSize){
+                        blockSize = ctx->inBuff+ctx->inBuffSize - readBuff;
+                        lastChunk = true;
+                    }
+                }else{
+                    blockSize = ctx->inBuffSize;
                     lastChunk = true;
                 }
             }else{
-                blockSize = ctx->inBuffSize;
-                lastChunk = true;
-            }
-        }else{
-            do{
-                if(residual){
-                    if(residual > ctx->maxBlockSize){
-                        blockSize = ctx->maxBlockSize;
-                        residual = residual - ctx->maxBlockSize;
-                    }else{
-                        blockSize = residual;
-                        residual = 0;
-                    }
-                }else if(ctx->inBuff[tarHeaderIdx]){//tar ends with null headers that we can skip
-                    TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
-                    if(isTarHeader(header)){
-                        size_t size = strtoul(header->size, NULL, 8);
-
-                        const size_t mod = size%512;
-                        if(mod){
-                            size = size - mod + 512;
-                        }
-                        const size_t toNextHeader  = size + 512;
-
-                        tarHeaderIdx += toNextHeader;
-                        blockSize += toNextHeader;
-                        
-                        if(ctx->maxBlockSize && blockSize > ctx->maxBlockSize){
-                            residual = blockSize - ctx->maxBlockSize;
+                do{
+                    if(residual){
+                        if(residual > ctx->maxBlockSize){
                             blockSize = ctx->maxBlockSize;
+                            residual = residual - ctx->maxBlockSize;
+                        }else{
+                            blockSize = residual;
+                            residual = 0;
                         }
+                    }else if(ctx->inBuff[tarHeaderIdx]){//tar ends with null headers that we can skip
+                        TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
+                        if(isTarHeader(header)){
+                            size_t size = strtoul(header->size, NULL, 8);
 
-                        if(ctx->verbose){
-                            fprintf(stderr, "+ %s (%ld)\n", header->name, size);
+                            const size_t mod = size%512;
+                            if(mod){
+                                size = size - mod + 512;
+                            }
+                            const size_t toNextHeader  = size + 512;
+
+                            tarHeaderIdx += toNextHeader;
+                            blockSize += toNextHeader;
+
+                            if(ctx->maxBlockSize && blockSize > ctx->maxBlockSize){
+                                residual = blockSize - ctx->maxBlockSize;
+                                blockSize = ctx->maxBlockSize;
+                            }
+
+                            if(ctx->verbose){
+                                fprintf(stderr, "+ %s (%zu)\n", header->name, size);
+                            }
+                        }else{
+                            fprintf(stderr, "ERROR: Invalid tar header. If this is not a tar archive use raw mode (-r)\n");
+                            exit(EXIT_FAILURE);
                         }
                     }else{
-                        fprintf(stderr, "ERROR: Invalid tar header. If this is not a tar archive use raw mode (-r)\n");
-                        exit(EXIT_FAILURE);
+                        if(ctx->verbose){
+                            fprintf(stderr, "+ <null>\n");
+                        }
+                        tarHeaderIdx+=512;
+                        blockSize += 512;
                     }
-                }else{
-                    if(ctx->verbose){
-                        fprintf(stderr, "+ <null>\n");
-                    }
-                    tarHeaderIdx+=512;
-                    blockSize += 512;
-                }
-                lastChunk = tarHeaderIdx >= ctx->inBuffSize;
-            }while(blockSize < ctx->minBlockSize && !lastChunk);
-        }
+                    lastChunk = tarHeaderIdx >= ctx->inBuffSize;
+                }while(blockSize < ctx->minBlockSize && !lastChunk);
+            }
 
-        ZSTD_CCtx_setPledgedSrcSize(ctx->cctx, blockSize);
-        if(ctx->verbose){
-            fprintf(stderr, "# END OF BLOCK (%lu, %lu)\n\n", blockSize, tarHeaderIdx);
-        }
+            zstdSetPledged(ctx, blockSize, true);
+            if(ctx->verbose){
+                fprintf(stderr, "# END OF BLOCK (%lu, %lu)\n\n", blockSize, tarHeaderIdx);
+            }
 
-        if(readBuff+blockSize > ctx->inBuff+ctx->inBuffSize){
-            fprintf(stderr, "FATAL ERROR: This is a bug. Please, report it.\n");
-            exit(EXIT_FAILURE);
-        }
-
-        ZSTD_inBuffer input = {readBuff, blockSize, 0 };
-        size_t remaining;
-        mode_t mode;
-        uint64_t compressedSize = 0;
-        do {
-            ZSTD_outBuffer output = {ctx->outBuff, ctx->outBuffSize, 0 };
-            mode = input.pos < input.size ? ZSTD_e_continue : ZSTD_e_end;
-            remaining = ZSTD_compressStream2(ctx->cctx, &output , &input, mode);
-            if(ZSTD_isError(remaining)){
-                fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(remaining));
+            if(readBuff+blockSize > ctx->inBuff+ctx->inBuffSize){
+                fprintf(stderr, "FATAL ERROR: This is a bug. Please, report it.\n");
                 exit(EXIT_FAILURE);
             }
-            compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
-        } while (mode==ZSTD_e_continue || remaining>0);
 
-        seekTableAdd(ctx, compressedSize, blockSize);
-        
-        readBuff += blockSize;
+            ZSTD_inBuffer input = {readBuff, blockSize, 0 };
+            size_t remaining;
+            ZSTD_EndDirective mode;
+            uint64_t compressedSize = 0;
+            do {
+                ZSTD_outBuffer output = {ctx->outBuff, ctx->outBuffSize, 0 };
+                mode = input.pos < input.size ? ZSTD_e_continue : ZSTD_e_end;
+                remaining = ZSTD_compressStream2(ctx->cctx, &output , &input, mode);
+                if(ZSTD_isError(remaining)){
+                    fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(remaining));
+                    exit(EXIT_FAILURE);
+                }
+                compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
+            } while (mode==ZSTD_e_continue || remaining>0);
+
+            seekTableAdd(ctx, compressedSize, blockSize);
+
+            readBuff += blockSize;
+        }
+
+        cleanupCompression(ctx);
+        munmap(ctx->inBuff, ctx->inBuffSize);
     }
-
-    if(!ctx->skipSeekTable){
-        writeSeekTable(ctx);
-    }
-
-    free(ctx->seekTable);
-    ctx->seekTable = NULL;
-    ctx->seekTableLen = 0;
-    ctx->seekTableCap = 0;
-
-    ZSTD_freeCCtx(ctx->cctx);
-    fclose(ctx->outFile);
-    free(ctx->outBuff);
-    munmap(ctx->inBuff, ctx->inBuffSize);
 }
 
 static char* getOutFilename(const char* inFilename){
     const size_t size = strlen(inFilename) + 5;
     void* const buff = malloc(size);
+    if(!buff){
+        fprintf(stderr, "ERROR: Out of memory allocating output filename buffer\n");
+        exit(EXIT_FAILURE);
+    }
     memset(buff, 0, size);
     strcat(buff, inFilename);
     strcat(buff, ".zst");
-    return (char*)buff;
+    return buff;
 }
 
 void version(){
@@ -437,17 +830,23 @@ void usage(const char *name, const char *str){
             "\tPython library: https://github.com/martinellimarco/indexed_zstd\n"
             "\tFUSE mount:     https://github.com/mxmlnkn/ratarmount\n"
             "\n"
-            "Usage: %1$s [OPTIONS...] [TAR ARCHIVE]\n"
+            "Usage: %1$s [OPTIONS...] [TAR ARCHIVE | -]\n"
+            "\n"
+            "Use '-' as the input filename to read from standard input.\n"
             "\n"
             "Examples:\n"
             "\t%1$s any.file -s 10M                        Compress any.file to any.file.zst, each input block will be of 10M\n"
             "\t%1$s archive.tar                            Compress archive.tar to archive.tar.zst\n"
             "\t%1$s archive.tar -o output.tar.zst          Compress archive.tar to output.tar.zst\n"
-            "\t%1$s archive.tar -o /dev/stdout             Compress archive.tar to standard output\n"
+            "\t%1$s archive.tar -o -                       Compress archive.tar to standard output\n"
+            "\t%1$s -r - -o out.zst                        Compress stdin (raw mode) to out.zst\n"
+            "\t%1$s - -o out.tar.zst                       Compress tar from stdin to out.tar.zst\n"
+            "\t%1$s -r - -o -                              Compress stdin to stdout (raw mode)\n"
             "\n"
             "Options:\n"
             "\t-l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 3.\n"
-            "\t-o FILENAME        Output file name.\n"
+            "\t-o FILENAME        Output file name. Use '-' to write to standard output.\n"
+            "\t                   When reading from stdin ('-') and -o is omitted, output defaults to stdout.\n"
             "\t-s SIZE            In raw mode: the exact size of each input block, except the last one.\n"
             "\t                   In tar mode: the minimum size of an input block, in bytes.\n"
             "\t                                A block is composed by one or more whole files.\n"
@@ -579,8 +978,10 @@ int main(int argc, char **argv){
                 version();
                 exit(EXIT_SUCCESS);
             case 'h':
-            default:
                 usage(executable, NULL);
+                break;
+            default:
+                usage(executable, "ERROR: Unknown option");
                 break;
         }
     }
@@ -599,22 +1000,42 @@ int main(int argc, char **argv){
 
     ctx->inFilename = argv[0];
 
-    if(!ctx->rawMode){
+    // Stdin mode: "-" as the input filename reads from standard input.
+    if(strcmp(ctx->inFilename, "-") == 0){
+        ctx->stdinMode = true;
+    }
+
+    // Auto-detect raw mode from filename suffix only for real files.
+    // When reading from stdin there is no filename to inspect; the user must
+    // pass -r explicitly if raw mode is desired (default: tar mode).
+    if(!ctx->rawMode && !ctx->stdinMode){
         ctx->rawMode = !strEndsWith(ctx->inFilename, "tar");
     }
 
-    if(access(ctx->inFilename, F_OK) != 0){
+    // File existence check — not applicable for stdin.
+    if(!ctx->stdinMode && access(ctx->inFilename, F_OK) != 0){
         fprintf(stderr, "%s: File not found\n", ctx->inFilename);
         free(ctx);
         return EXIT_FAILURE;
     }
 
+    // Determine the output destination.
     char *outFilenameToFree = NULL;
     if(ctx->outFilename == NULL){
-        outFilenameToFree = ctx->outFilename = getOutFilename(ctx->inFilename);
+        if(ctx->stdinMode){
+            // stdin input with no explicit -o: write to stdout.
+            ctx->stdoutMode = true;
+        }else{
+            outFilenameToFree = ctx->outFilename = getOutFilename(ctx->inFilename);
+        }
+    }else if(strcmp(ctx->outFilename, "-") == 0){
+        // -o - explicitly requested: write to stdout.
+        ctx->stdoutMode = true;
     }
 
-    if(!overwrite && access(ctx->outFilename, F_OK) == 0){
+    // Overwrite prompt — skipped when writing to stdout (nothing to overwrite).
+    // ctx->inBuff is NULL here; prepareInput() is called inside compressFile().
+    if(!ctx->stdoutMode && !overwrite && access(ctx->outFilename, F_OK) == 0){
         char ans;
         fprintf(stderr, "%s already exists. Overwrite? [y/N]: ", ctx->outFilename);
         const int res = scanf(" %c", &ans);
