@@ -223,6 +223,9 @@ add_error_test(err_overflow_S               overflow_S)
 # ── seekTableEnsureCap realloc growth (>1024 frames) ──────────────────────
 add_error_test(err_seektable_grow            seektable_grow)
 
+# ── Garbage between number and suffix in -s/-S ──────────────────────────
+add_error_test(err_garbage_suffix            garbage_suffix)
+
 # ── Apply COVERAGE / SANITIZE env vars to all tests ──────────────────────────
 foreach(tname
     raw_1mb raw_100mb
@@ -258,6 +261,7 @@ foreach(tname
     err_multiplier_suffixes_extra
     err_stdin_overwrite_no_force err_stdin_overwrite_force
     err_overflow_s err_overflow_S
-    err_seektable_grow)
+    err_seektable_grow
+    err_garbage_suffix)
     set_test_env(${tname})
 endforeach()

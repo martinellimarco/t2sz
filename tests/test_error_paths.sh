@@ -736,6 +736,27 @@ seektable_grow)
     log_pass "$TEST_NAME"
     ;;
 
+# ── Garbage between number and suffix in -s/-S ──────────────────────────────
+
+garbage_suffix)
+    # Exercises the decodeMultiplier() fix: garbage characters between the
+    # numeric value and a valid suffix (e.g. "1xyzGiB") must be rejected.
+    # Before the fix, strEndsWith() would match the trailing "GiB" and
+    # silently accept the argument.
+    assert_exit 1  "$T2SZ" -s 1xyzGiB dummy
+    assert_exit 1  "$T2SZ" -S 1xyzGiB dummy
+    assert_exit 1  "$T2SZ" -s 10fooM dummy
+    assert_exit 1  "$T2SZ" -S 10fooM dummy
+    assert_exit 1  "$T2SZ" -s 5barKiB dummy
+    assert_exit 1  "$T2SZ" -S 5barKiB dummy
+    # Valid suffixes must still be accepted (file not found, not block-size error)
+    make_small_dat "$WORK/input.dat"
+    assert_exit 0  "$T2SZ" -r -s 1GiB -o "$WORK/out1.zst" -f "$WORK/input.dat"
+    assert_exit 0  "$T2SZ" -r -s 1M   -o "$WORK/out2.zst" -f "$WORK/input.dat"
+    assert_exit 0  "$T2SZ" -r -s 1k   -o "$WORK/out3.zst" -f "$WORK/input.dat"
+    log_pass "$TEST_NAME"
+    ;;
+
 *)
     log_fail "unknown test name '$TEST_NAME'"
     exit 1
