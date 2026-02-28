@@ -73,13 +73,10 @@ bool isTarHeader(TarHeader* header){
     return true;
 }
 
-typedef struct SeekTableEntry SeekTableEntry;
-
-struct SeekTableEntry{
+typedef struct {
     uint32_t compressedSize;
     uint32_t decompressedSize;
-    SeekTableEntry* next;
-};
+} SeekTableEntry;
 
 typedef struct {
     //input parameters
@@ -106,7 +103,8 @@ typedef struct {
 
     //seek table
     SeekTableEntry* seekTable;
-    uint32_t numberOfFrames;
+    size_t seekTableLen;
+    size_t seekTableCap;
     bool skipSeekTable;
 } Context;
 
@@ -134,7 +132,7 @@ void writeSeekTable(const Context *ctx){
     fwrite(buf, 4, 1, ctx->outFile);
     
     //Frame_Size
-    writeLE32(buf, ctx->numberOfFrames*8 + 9);
+    writeLE32(buf, (uint32_t)ctx->seekTableLen*8 + 9);
     fwrite(buf, 4, 1, ctx->outFile);
         
     if(ctx->verbose){
@@ -143,7 +141,9 @@ void writeSeekTable(const Context *ctx){
     }
 
     //Seek_Table_Entries
-    for(const SeekTableEntry* e = ctx->seekTable; e; e = e->next){
+    for (size_t i = 0; i < ctx->seekTableLen; i++) {
+        const SeekTableEntry* e = &ctx->seekTable[i];
+
         //Compressed_Size
         writeLE32(buf, e->compressedSize);
         fwrite(buf, 4, 1, ctx->outFile);
@@ -151,15 +151,15 @@ void writeSeekTable(const Context *ctx){
         //Decompressed_Size
         writeLE32(buf, e->decompressedSize);
         fwrite(buf, 4, 1, ctx->outFile);
-        
+
         if(ctx->verbose){
             fprintf(stderr, "%u\t%u\n", e->decompressedSize, e->compressedSize);
         }
     }
-    
+
     //Seek_Table_Footer
     //Number_Of_Frames
-    writeLE32(buf, ctx->numberOfFrames);
+    writeLE32(buf, (uint32_t)ctx->seekTableLen);
     fwrite(buf, 4, 1, ctx->outFile);
     
     //Seek_Table_Descriptor
@@ -171,12 +171,19 @@ void writeSeekTable(const Context *ctx){
     fwrite(buf, 4, 1, ctx->outFile);
 }
 
-SeekTableEntry* newSeekTableEntry(const uint32_t compressedSize, const uint32_t decompressedSize){
-    SeekTableEntry* e = malloc(sizeof(SeekTableEntry));
-    memset(e, 0, sizeof(SeekTableEntry));
-    e->compressedSize = compressedSize;
-    e->decompressedSize = decompressedSize;
-    return e;
+static void seekTableEnsureCap(Context* ctx, size_t needed) {
+    if (ctx->seekTableCap >= needed) return;
+
+    size_t newCap = ctx->seekTableCap ? ctx->seekTableCap : 1024; // start cap
+    while (newCap < needed) newCap *= 2;
+
+    SeekTableEntry* p = realloc(ctx->seekTable, newCap * sizeof(SeekTableEntry));
+    if (!p) {
+        fprintf(stderr, "ERROR: Out of memory while growing seek table\n");
+        exit(EXIT_FAILURE);
+    }
+    ctx->seekTable = p;
+    ctx->seekTableCap = newCap;
 }
 
 void seekTableAdd(Context* ctx, const uint64_t compressedSize, const uint64_t decompressedSize){
@@ -184,33 +191,37 @@ void seekTableAdd(Context* ctx, const uint64_t compressedSize, const uint64_t de
         return;
     }
 
-    ctx->numberOfFrames++;
-
-    if(ctx->numberOfFrames >= 0x8000000U){
+    // entry size uint32 + numFrames uint32
+    if(ctx->seekTableLen + 1 >= 0x8000000U){
         ctx->skipSeekTable = true;
         fprintf(stderr, "Warning: Too many frames. Unable to generate the seek table.\n");
         return;
     }
-
     if(decompressedSize >= 0x80000000U){
         ctx->skipSeekTable = true;
         fprintf(stderr, "Warning: Input frame too big. Unable to generate the seek table.\n");
         return;
     }
-
-    if(!ctx->seekTable){
-        ctx->seekTable = newSeekTableEntry(compressedSize, decompressedSize);
-    }else{
-        SeekTableEntry* e = ctx->seekTable;
-        for(; e->next; e = e->next){}
-        e->next = newSeekTableEntry(compressedSize, decompressedSize);
+    if(compressedSize >= 0x100000000ULL){
+        ctx->skipSeekTable = true;
+        fprintf(stderr, "Warning: Compressed frame too big. Unable to generate the seek table.\n");
+        return;
     }
+
+    seekTableEnsureCap(ctx, ctx->seekTableLen + 1);
+
+    ctx->seekTable[ctx->seekTableLen].compressedSize   = (uint32_t)compressedSize;
+    ctx->seekTable[ctx->seekTableLen].decompressedSize = (uint32_t)decompressedSize;
+    ctx->seekTableLen++;
 }
 
 Context* newContext(){
     Context* ctx = malloc(sizeof(Context));
     memset(ctx, 0, sizeof(Context));
     ctx->level = 3;
+    ctx->seekTable = NULL;
+    ctx->seekTableLen = 0;
+    ctx->seekTableCap = 0;
     return ctx;
 }
 
@@ -376,12 +387,10 @@ void compressFile(Context *ctx){
         writeSeekTable(ctx);
     }
 
-    SeekTableEntry *e = ctx->seekTable;
-    while(e){
-        SeekTableEntry *tmp = e->next;
-        free(e);
-        e = tmp;
-    }
+    free(ctx->seekTable);
+    ctx->seekTable = NULL;
+    ctx->seekTableLen = 0;
+    ctx->seekTableCap = 0;
 
     ZSTD_freeCCtx(ctx->cctx);
     fclose(ctx->outFile);
