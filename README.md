@@ -32,7 +32,7 @@ To take advantage of seeking see the following projects:
 - FUSE mount:     [ratarmount](https://github.com/mxmlnkn/ratarmount)
 
 
-# Build
+## Build
 
 You'll need `libzstd-dev`
 
@@ -66,7 +66,7 @@ then install it with
 sudo dpkg -i t2sz*.deb
 ```
 
-# Usage
+## Usage
 
 ```commandline
 Usage: t2sz [OPTIONS...] [TAR ARCHIVE]
@@ -114,21 +114,21 @@ Options:
 
 ```
 
-# License
+## License
 
 See LICENSE
 
-# Release
+## Release
 
-## Debian-based
+### Debian-based
 
 Download the latest stable source code or .deb from the [release page](https://github.com/martinellimarco/t2sz/releases/latest). This is the recommended version.
 
-## Arch-based
+### Arch-based
 
 Check out [t2sz](https://aur.archlinux.org/packages/t2sz/) on AUR or `pamac build t2sz`
 
-## Snap
+### Snap
 
 For your convenience you can install the latest release from the [snap store](https://snapcraft.io/t2sz) but beware that it is distributed in strict mode and it can access only your home directory by default.
 
@@ -138,7 +138,7 @@ If you want to give it access to every file you can install it with `--devmode`.
 
 [![Get it from the Snap Store](https://snapcraft.io/static/images/badges/en/snap-store-black.svg)](https://snapcraft.io/t2sz)
 
-## Homebrew
+### Homebrew
 
 On Linux and macOS you can install with [Homebrew](https://brew.sh/):
 
@@ -147,7 +147,7 @@ brew tap martinellimarco/t2sz
 brew install t2sz
 ```
 
-# Testing
+## Testing
 
 The project includes a comprehensive test suite covering round-trip correctness
 (compress → decompress → SHA-256 verify), memory safety (AddressSanitizer +
