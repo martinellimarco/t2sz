@@ -1030,6 +1030,7 @@ void compressFile(Context *ctx){
                 }while(blockSize < ctx->minBlockSize && !lastChunk);
             }
 
+            zstdResetFrame(ctx);
             zstdSetPledged(ctx, blockSize, true);
             if(ctx->verbose){
                 fprintf(stderr, "# END OF BLOCK (%lu, %lu)\n\n", blockSize, tarHeaderIdx);
