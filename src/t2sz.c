@@ -19,6 +19,7 @@
 #include <math.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/mman.h>
 #include <zstd.h>
 
@@ -507,39 +508,53 @@ int main(int argc, char **argv){
     const char* executable = argv[0];
 
     int ch;
-    while ((ch = getopt(argc, argv, "l:o:s:S:T:rjVfvh")) != -1) {
-        switch (ch) {
-            case 'l':
-                ctx->level = atoi(optarg);
-                if(ctx->level<1 || ctx->level>22){
+    while((ch = getopt(argc, argv, "l:o:s:S:T:rjVfvh")) != -1){
+        switch(ch){
+            case 'l': {
+                char *endptr;
+                errno = 0;
+                const long val = strtol(optarg, &endptr, 10);
+                if(endptr == optarg || *endptr != '\0' || errno == ERANGE || val < 1 || val > 22){
                     usage(executable, "ERROR: Invalid level. Must be between 1 and 22.");
                 }
+                ctx->level = (int32_t)val;
                 break;
+            }
             case 'o':
                 ctx->outFilename = optarg;
                 break;
             case 's': {
                 const size_t multiplier = decodeMultiplier(optarg);
-                ctx->minBlockSize = atoi(optarg) * multiplier;
-                if(ctx->minBlockSize < multiplier){
+                char *endptr;
+                errno = 0;
+                const long val = strtol(optarg, &endptr, 10);
+                if(endptr == optarg || errno == ERANGE || val < 1){
                     usage(executable, "ERROR: Invalid block size");
                 }
+                ctx->minBlockSize = (size_t)val * multiplier;
                 break;
             }
             case 'S': {
                 const size_t multiplier = decodeMultiplier(optarg);
-                ctx->maxBlockSize = atoi(optarg) * multiplier;
-                if(ctx->maxBlockSize < multiplier){
+                char *endptr;
+                errno = 0;
+                const long val = strtol(optarg, &endptr, 10);
+                if(endptr == optarg || errno == ERANGE || val < 1){
                     usage(executable, "ERROR: Invalid block size");
                 }
+                ctx->maxBlockSize = (size_t)val * multiplier;
                 break;
             }
-            case 'T':
-                ctx->workers = atoi(optarg);
-                if(ctx->workers<1){
+            case 'T': {
+                char *endptr;
+                errno = 0;
+                const long val = strtol(optarg, &endptr, 10);
+                if(endptr == optarg || *endptr != '\0' || errno == ERANGE || val < 1 || val > UINT32_MAX){
                     usage(executable, "ERROR: Invalid number of threads. Must be greater than 0.");
                 }
+                ctx->workers = (uint32_t)val;
                 break;
+            }
             case 'r':
                 ctx->rawMode = true;
                 break;
@@ -569,7 +584,7 @@ int main(int argc, char **argv){
     }else if(argc > 1){
         usage(executable, "Too many arguments");
     }
-    
+
     if(ctx->maxBlockSize && ctx->maxBlockSize < ctx->minBlockSize){
         usage(executable, "The maximum block size can't be smaller than the minimum one");
     }
@@ -580,7 +595,7 @@ int main(int argc, char **argv){
         ctx->rawMode = !strEndsWith(ctx->inFilename, "tar");
     }
 
-    if(access(ctx->inFilename, F_OK ) != 0){
+    if(access(ctx->inFilename, F_OK) != 0){
         fprintf(stderr, "%s: File not found\n", ctx->inFilename);
         free(ctx);
         return 1;
@@ -591,11 +606,11 @@ int main(int argc, char **argv){
         outFilenameToFree = ctx->outFilename = getOutFilename(ctx->inFilename);
     }
 
-    if(!overwrite && access(ctx->outFilename, F_OK ) == 0){
+    if(!overwrite && access(ctx->outFilename, F_OK) == 0){
         char ans;
         fprintf(stderr, "%s already exists. Overwrite? [y/N]: ", ctx->outFilename);
         const int res = scanf(" %c", &ans);
-        if(res && ans!='y'){
+        if(res && ans != 'y'){
             free(outFilenameToFree);
             free(ctx);
             return 0;
