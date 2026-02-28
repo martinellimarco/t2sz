@@ -376,6 +376,13 @@ void compressFile(Context *ctx){
         writeSeekTable(ctx);
     }
 
+    SeekTableEntry *e = ctx->seekTable;
+    while(e){
+        SeekTableEntry *tmp = e->next;
+        free(e);
+        e = tmp;
+    }
+
     ZSTD_freeCCtx(ctx->cctx);
     fclose(ctx->outFile);
     free(ctx->outBuff);
@@ -575,11 +582,13 @@ int main(int argc, char **argv){
 
     if(access(ctx->inFilename, F_OK ) != 0){
         fprintf(stderr, "%s: File not found\n", ctx->inFilename);
+        free(ctx);
         return 1;
     }
 
+    char *outFilenameToFree = NULL;
     if(ctx->outFilename == NULL){
-        ctx->outFilename = getOutFilename(ctx->inFilename);
+        outFilenameToFree = ctx->outFilename = getOutFilename(ctx->inFilename);
     }
 
     if(!overwrite && access(ctx->outFilename, F_OK ) == 0){
@@ -587,12 +596,15 @@ int main(int argc, char **argv){
         fprintf(stderr, "%s already exists. Overwrite? [y/N]: ", ctx->outFilename);
         int res = scanf(" %c", &ans);
         if(res && ans!='y'){
+            free(outFilenameToFree);
+            free(ctx);
             return 0;
         }
     }
 
     compressFile(ctx);
 
+    free(outFilenameToFree);
     free(ctx);
 
     return 0;
