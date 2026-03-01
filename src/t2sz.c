@@ -1091,11 +1091,12 @@ void compressFile(Context *ctx){
                             // payload) fits within the mapped buffer.
                             const size_t remainingInBuf = ctx->inBuffSize - tarHeaderIdx;
                             if(toNextHeader > remainingInBuf){
-                                // Truncated entry — include whatever data remains.
-                                blockSize += remainingInBuf;
-                                tarHeaderIdx = ctx->inBuffSize;
-                                lastChunk = true;
-                                break;
+                                fprintf(stderr,
+                                        "ERROR: Truncated tar entry \"%.*s\" "
+                                        "(expected %zu bytes, only %zu remain)\n",
+                                        (int)sizeof(header->name), header->name,
+                                        toNextHeader, remainingInBuf);
+                                exit(EXIT_FAILURE);
                             }
 
                             tarHeaderIdx += toNextHeader;

@@ -4,7 +4,7 @@
 
 The `fuzz/` directory contains [libFuzzer](https://llvm.org/docs/LibFuzzer.html)
 harnesses for fuzz-testing t2sz. Fuzzing complements the deterministic test
-suite (76 tests) by exploring the vast space of possible inputs that manual
+suite (78 tests) by exploring the vast space of possible inputs that manual
 tests cannot cover.
 
 Three harnesses are provided:
