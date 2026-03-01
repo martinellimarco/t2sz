@@ -9,11 +9,11 @@ tests cannot cover.
 
 Three harnesses are provided:
 
-| Harness          | Code path             | What it exercises                                                                                                                                   |
-|------------------|-----------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| `fuzz_tar_mmap`  | mmap tar (file input) | `isTarHeader()`, `checksum()`, `strtoul(header->size)`, the `tarHeaderIdx` state machine in `compressFile()`, `maxBlockSize` / `residual` splitting |
-| `fuzz_tar_stdin` | stdin tar (streaming) | `compressStdinTar()`, `readExactStdin()`, `pushBytesTar()`, `isZeroTarBlock()`, truncated header/payload handling                                   |
-| `fuzz_cli`       | CLI arg parsing       | `parseArgs()`, `decodeMultiplier()`, `strtol()` edge cases, getopt option handling, suffix validation, stdin/raw mode detection                     |
+| Harness          | Code path             | What it exercises                                                                                                                            |
+|------------------|-----------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `fuzz_tar_mmap`  | mmap tar (file input) | `isTarHeader()`, `checksum()`, `parseTarSize()`, the `tarHeaderIdx` state machine in `compressFile()`, `maxBlockSize` / `residual` splitting |
+| `fuzz_tar_stdin` | stdin tar (streaming) | `compressStdinTar()`, `readExactStdin()`, `pushBytesTar()`, `isZeroTarBlock()`, truncated header/payload handling                            |
+| `fuzz_cli`       | CLI arg parsing       | `parseArgs()`, `decodeMultiplier()`, `strtol()` edge cases, getopt option handling, suffix validation, stdin/raw mode detection              |
 
 The two tar harnesses include a **checksum-aware custom mutator** that
 recalculates the tar header checksum after each mutation. Without it, the

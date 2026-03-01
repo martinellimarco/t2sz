@@ -369,6 +369,12 @@ void prepareInput(Context *ctx){
         return;
     }
 
+    // If the input buffer is already populated (e.g., by a fuzz harness
+    // that injects data directly), skip file I/O entirely.
+    if(ctx->inBuff){
+        return;
+    }
+
     const int fd = open(ctx->inFilename, O_RDONLY, 0);
     if(fd < 0){
         fprintf(stderr, "ERROR: Unable to open '%s'\n", ctx->inFilename);
@@ -913,6 +919,11 @@ static void compressStdinTar(Context *ctx){
         pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
 
         const size_t fileSize = parseTarSize(header);
+        if(fileSize > SIZE_MAX - 1024){
+            fprintf(stderr, "ERROR: Invalid tar entry size (too large)\n");
+            free(chunkBuf);
+            exit(EXIT_FAILURE);
+        }
 
         // pad to 512
         size_t padded = fileSize;
@@ -964,18 +975,19 @@ static void compressStdinTar(Context *ctx){
  *
  * @param ctx  The compression context.
  */
-static void cleanupCompression(const Context *ctx){
+static void cleanupCompression(Context *ctx){
     if(!ctx->skipSeekTable){
         writeSeekTable(ctx);
     }
-    free(ctx->seekTable);
-    ZSTD_freeCCtx(ctx->cctx);
+    free(ctx->seekTable);      ctx->seekTable = NULL;
+    ZSTD_freeCCtx(ctx->cctx);  ctx->cctx = NULL;
     if(!ctx->stdoutMode){
         fclose(ctx->outFile);
     }else{
         fflush(ctx->outFile);
     }
-    free(ctx->outBuff);
+    ctx->outFile = NULL;
+    free(ctx->outBuff);        ctx->outBuff = NULL;
 }
 
 /**
@@ -1044,16 +1056,35 @@ void compressFile(Context *ctx){
                             blockSize = residual;
                             residual = 0;
                         }
+                    }else if(tarHeaderIdx + 512 > ctx->inBuffSize){
+                        // Not enough data for a full header — truncated archive.
+                        lastChunk = true;
+                        break;
                     }else if(ctx->inBuff[tarHeaderIdx]){//tar ends with null headers that we can skip
                         TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
                         if(isTarHeader(header)){
                             size_t size = parseTarSize(header);
+                            if(size > SIZE_MAX - 1024){
+                                fprintf(stderr, "ERROR: Invalid tar entry size (too large)\n");
+                                exit(EXIT_FAILURE);
+                            }
 
                             const size_t mod = size%512;
                             if(mod){
                                 size = size - mod + 512;
                             }
                             const size_t toNextHeader  = size + 512;
+
+                            // Check that the complete entry (header + padded
+                            // payload) fits within the mapped buffer.
+                            const size_t remainingInBuf = ctx->inBuffSize - tarHeaderIdx;
+                            if(toNextHeader > remainingInBuf){
+                                // Truncated entry — include whatever data remains.
+                                blockSize += remainingInBuf;
+                                tarHeaderIdx = ctx->inBuffSize;
+                                lastChunk = true;
+                                break;
+                            }
 
                             tarHeaderIdx += toNextHeader;
                             blockSize += toNextHeader;
@@ -1088,7 +1119,7 @@ void compressFile(Context *ctx){
             }
 
             if(readBuff+blockSize > ctx->inBuff+ctx->inBuffSize){
-                fprintf(stderr, "FATAL ERROR: This is a bug. Please, report it.\n");
+                fprintf(stderr, "ERROR: Malformed or truncated tar archive (block extends past end of input)\n");
                 exit(EXIT_FAILURE);
             }
 
@@ -1113,7 +1144,9 @@ void compressFile(Context *ctx){
         }
 
         cleanupCompression(ctx);
-        munmap(ctx->inBuff, ctx->inBuffSize);
+        if(ctx->inFilename){
+            munmap(ctx->inBuff, ctx->inBuffSize);
+        }
     }
 }
 
@@ -1413,7 +1446,7 @@ static void parseArgs(int argc, char **argv, Context *ctx, bool *overwrite){
     // When reading from stdin there is no filename to inspect; the user must
     // pass -r explicitly if raw mode is desired (default: tar mode).
     if(!ctx->rawMode && !ctx->stdinMode){
-        ctx->rawMode = !strEndsWith(ctx->inFilename, "tar");
+        ctx->rawMode = !strEndsWith(ctx->inFilename, ".tar");
     }
 }
 
