@@ -76,7 +76,7 @@ assert_nonzero() {
 # COPYFILE_DISABLE=1 suppresses macOS extended-attribute sidecar files.
 make_small_tar() {
     printf 'hello t2sz error tests\n' > "$WORK/hello.txt"
-    COPYFILE_DISABLE=1 tar cf "$1" -C "$WORK" hello.txt 2>/dev/null
+    COPYFILE_DISABLE=1 tar cf "$1" -C "$WORK" hello.txt 2>/dev/null || return 1
 }
 
 # Create a small binary non-tar file at the given path.
