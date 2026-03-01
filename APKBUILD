@@ -1,9 +1,9 @@
 # Contributor: Marco Martinelli <marco+t2sz@13byte.com>
 # Maintainer: Marco Martinelli <marco+t2sz@13byte.com>
 pkgname=t2sz
-pkgver=1.1.2
+pkgver=1.2.0
 pkgrel=0
-pkgdesc="t2sz compress a file into a seekable zstd with special handling for tar archives."
+pkgdesc="t2sz compresses a file into a seekable zstd with special handling for tar archives."
 url="https://github.com/martinellimarco/t2sz"
 arch="all"
 license="GPL-3.0-or-later"
@@ -30,7 +30,10 @@ build() {
 }
 
 check() {
-        :
+        cd "$srcdir/$pkgname-$pkgver"
+        cmake -B build_test -DBUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+        cmake --build build_test
+        ctest --test-dir build_test --output-on-failure
 }
 
 package() {

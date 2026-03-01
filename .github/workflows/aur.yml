@@ -5,11 +5,49 @@ on:
     types: [created]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  aur-publish:
-    runs-on: ubuntu-latest
+  test:
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libzstd-dev zstd cmake
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j4
+
+  test-asan:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libzstd-dev zstd cmake
+
+      - name: Configure
+        run: cmake -B build_asan -DBUILD_TESTS=ON -DSANITIZE=ON
+
+      - name: Build
+        run: cmake --build build_asan
+
+      - name: Test (ASAN + UBSan + LeakSanitizer)
+        run: ctest --test-dir build_asan --output-on-failure -j4
+
+  aur-publish:
+    needs: [test, test-asan]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Publish AUR package
         uses: KSXGitHub/github-actions-deploy-aur@v2.2.5
