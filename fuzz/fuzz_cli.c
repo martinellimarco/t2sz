@@ -130,7 +130,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     /* Call parseArgs() — exit() calls are caught by longjmp.
      * fuzz_active is set BEFORE newContext() so that even an OOM inside
      * newContext() is caught by longjmp rather than killing the process. */
-    Context *ctx = NULL;
+    /* volatile: ctx is modified between setjmp and longjmp.  Without
+     * volatile the compiler may keep it in a register that longjmp
+     * restores to its pre-setjmp value (NULL), skipping all cleanup. */
+    Context * volatile ctx = NULL;
     bool overwrite = false;
 
     fuzz_active = 1;
