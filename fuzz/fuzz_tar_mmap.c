@@ -148,7 +148,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     }
     fuzz_active = 0;
 
-    /* Restore stdout and stderr. */
+    /* Flush stdio buffers BEFORE restoring fds to the terminal so that
+     * any compressed bytes buffered by a longjmp-interrupted write go to
+     * /dev/null, not the user's console. */
+    fflush(stdout);
+    fflush(stderr);
+
     if (saved_stdout >= 0) {
         dup2(saved_stdout, STDOUT_FILENO);
         close(saved_stdout);

@@ -91,6 +91,10 @@ For multi-core fuzzing:
 | `-rss_limit_mb`      | `4096`    | Caps RSS to 4 GiB; prevents OOM on inputs with huge tar size fields                          |
 | `-jobs` / `-workers` | CPU cores | Parallel fuzzing across multiple processes                                                   |
 
+> **Note**: on some platforms the `-detect_leaks=0` flag alone may not
+> suppress LSAN. If you still see leak reports, set the environment variable
+> explicitly: `ASAN_OPTIONS=detect_leaks=0 ./fuzz_tar_mmap ...`
+
 ---
 
 ## Reproducing and minimizing crashes
