@@ -154,8 +154,10 @@ add_roundtrip_test(stdin_raw_to_file   stdin  30  1048576  1  raw_to_file)
 add_roundtrip_test(stdin_tar_to_file   stdin  31  1048576  1  tar_to_file)
 add_roundtrip_test(stdin_raw_to_stdout stdin  32  1048576  1  raw_to_stdout)
 
-add_error_test(err_stdin_empty_raw      stdin_empty_raw)
-add_error_test(err_stdin_default_stdout stdin_default_stdout)
+add_error_test(err_stdin_empty_raw       stdin_empty_raw)
+add_error_test(err_stdin_empty_tar_mode  stdin_empty_tar_mode)
+add_error_test(err_mmap_tiny_tar         mmap_tiny_tar)
+add_error_test(err_stdin_default_stdout  stdin_default_stdout)
 add_error_test(err_stdin_file_stdout    stdin_file_stdout)
 
 # ── Stdin + raw mode with flags ──────────────────────────────────────────────
@@ -243,7 +245,8 @@ foreach(tname
     err_corrupt_tar err_auto_raw
     err_auto_outname err_multiplier_suffixes
     stdin_raw_to_file stdin_tar_to_file stdin_raw_to_stdout
-    err_stdin_empty_raw err_stdin_default_stdout err_stdin_file_stdout
+    err_stdin_empty_raw err_stdin_empty_tar_mode err_mmap_tiny_tar
+    err_stdin_default_stdout err_stdin_file_stdout
     stdin_raw_s256k stdin_raw_noseek stdin_raw_v
     stdin_tar_S1M stdin_tar_v
     stdin_tar_multi stdin_tar_multi_s512k stdin_tar_multi_sS

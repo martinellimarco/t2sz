@@ -963,6 +963,13 @@ static void compressStdinTar(Context *ctx){
         endFrameAndRecord(ctx, frameIn, frameOut, &frameOpen);
     }
 
+    if(ctx->seekTableLen == 0){
+        fprintf(stderr, "ERROR: No tar entries found on stdin. "
+                "If this is not a tar archive use raw mode (-r)\n");
+        free(chunkBuf);
+        exit(EXIT_FAILURE);
+    }
+
     free(chunkBuf);
 }
 
@@ -1153,6 +1160,15 @@ void compressFile(Context *ctx){
             seekTableAdd(ctx, compressedSize, blockSize);
 
             readBuff += blockSize;
+        }
+
+        if(!ctx->rawMode && ctx->seekTableLen == 0){
+            fprintf(stderr, "ERROR: No tar entries found in input. "
+                    "If this is not a tar archive use raw mode (-r)\n");
+            if(ctx->inFilename){
+                munmap(ctx->inBuff, ctx->inBuffSize);
+            }
+            exit(EXIT_FAILURE);
         }
 
         cleanupCompression(ctx);

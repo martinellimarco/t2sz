@@ -275,6 +275,22 @@ stdin_empty_raw)
     log_pass "$TEST_NAME"
     ;;
 
+stdin_empty_tar_mode)
+    # Truly empty stdin in tar mode (no -r): must fail because 0 bytes is not
+    # a valid tar archive.  Ensures we don't silently produce a 0-frame output
+    # with exit 0 (which would mask a broken pipeline).
+    assert_nonzero "$T2SZ" -o "$WORK/empty.zst" -f - < /dev/null
+    log_pass "$TEST_NAME"
+    ;;
+
+mmap_tiny_tar)
+    # A file smaller than 512 bytes is not a valid tar archive.
+    # Tar mode (mmap path) must fail, not silently produce 0 frames.
+    dd if=/dev/zero bs=100 count=1 2>/dev/null > "$WORK/tiny.tar"
+    assert_nonzero "$T2SZ" -o "$WORK/out.zst" -f "$WORK/tiny.tar"
+    log_pass "$TEST_NAME"
+    ;;
+
 stdin_default_stdout)
     # With "-" as input and no -o, output must go to stdout by default.
     # Verify the captured stdout is a valid zstd stream.

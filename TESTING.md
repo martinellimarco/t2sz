@@ -11,8 +11,8 @@ The test suite exercises t2sz across three dimensions:
 | **Memory safety**  | AddressSanitizer + UBSanitizer | buffer overflows, use-after-free, undefined behaviour   |
 | **Code coverage**  | LLVM coverage + llvm-cov       | dead or untested code paths                             |
 
-76 tests in total: 30 round-trip tests and 46 CLI/error/edge-case tests.
-All three build configurations run the same 76 tests.
+78 tests in total: 30 round-trip tests and 48 CLI/error/edge-case tests.
+All three build configurations run the same 78 tests.
 
 ---
 
@@ -35,7 +35,7 @@ cmake --build build
 cd build && ctest --output-on-failure
 ```
 
-Expected output: `100% tests passed, 0 tests failed out of 76`
+Expected output: `100% tests passed, 0 tests failed out of 78`
 
 ---
 
@@ -113,7 +113,7 @@ bash ../tests/test_coverage.sh ../build_cov
 | Stdin tar — single file    | `stdin_tar_to_file`, `stdin_tar_S1M`, `stdin_tar_v`                                                      | `compressStdinTar()` baseline, maxBlockSize splitting (`-S`), verbose                                                                                 |
 | Stdin tar — multi file     | `stdin_tar_multi`, `stdin_tar_multi_s512k`, `stdin_tar_multi_sS`                                         | multi-file tar from stdin, minBlockSize aggregation (`-s`), combined (`-s` + `-S`)                                                                    |
 | Stdin → stdout (full pipe) | `stdin_tar_to_stdout`                                                                                    | stdin and stdout simultaneously in tar mode                                                                                                           |
-| Stdin error paths          | `err_stdin_empty_raw`, `err_stdin_default_stdout`, `err_stdin_file_stdout`                               | empty stdin, default stdout fallback, explicit `-o -`                                                                                                 |
+| Stdin error paths          | `err_stdin_empty_raw`, `err_stdin_empty_tar_mode`, `err_stdin_default_stdout`, `err_stdin_file_stdout`   | empty stdin (raw: exit 0; tar: exit 1), default stdout fallback, explicit `-o -`                                                                      |
 | Stdin streaming errors     | `err_stdin_corrupt_tar`, `err_stdin_empty_tar`, `err_stdin_truncated_tar`, `err_stdin_truncated_payload` | `isTarHeader()` failure via stdin, `isZeroTarBlock()` zero-block handling, truncated header (`r != 512`), `readExactStdin()` EOF on truncated payload |
 | Stdout from file           | `err_stdout_tar_file`                                                                                    | mmap path with `-o -` (stdout output from file input, tar mode)                                                                                       |
 | Explicit `-o -` + stdin    | `err_stdin_explicit_stdout_raw`, `err_stdin_explicit_stdout_tar`                                         | stdoutMode set via explicit `-o -` when input is also stdin, raw and tar modes                                                                        |
@@ -125,7 +125,7 @@ bash ../tests/test_coverage.sh ../build_cov
 | CLI validation      | `err_no_args`, `err_too_many_args`, `err_bad_level_*`, `err_bad_block_*`, `err_bad_threads`, `err_block_S_lt_s`, `err_help`, `err_version` | all `usage()` and argument-check branches                                                                                            |
 | strtol edge cases   | `err_bad_level_strtol`, `err_bad_block_s_strtol`, `err_bad_block_S_strtol`, `err_bad_threads_strtol`                                       | `endptr == optarg`, `*endptr != '\0'` (trailing garbage), `ERANGE`, negative values, `val > UINT32_MAX`                              |
 | Unknown option      | `err_unknown_option`                                                                                                                       | getopt `'?'` → `switch default` case → `usage("ERROR: Unknown option")` → exit 1                                                     |
-| File-system errors  | `err_file_not_found`, `err_output_bad_path`, `err_empty_file`                                                                              | `access()` failure, `fopen()` failure in `prepareOutput()`, zero-byte input file (`prepareInput()`)                                  |
+| File-system errors  | `err_file_not_found`, `err_output_bad_path`, `err_empty_file`, `err_mmap_tiny_tar`                                                         | `access()` failure, `fopen()` failure in `prepareOutput()`, zero-byte input file (`prepareInput()`), sub-512-byte file in tar mode   |
 | Overwrite prompt    | `err_overwrite_no`, `err_overwrite_yes`                                                                                                    | `scanf` branch: answer `n` (no overwrite) and `y` (overwrite)                                                                        |
 | Stdin overwrite     | `err_stdin_overwrite_no_force`, `err_stdin_overwrite_force`                                                                                | stdinMode + existing file: error without `-f`, success with `-f` (no `scanf` corruption)                                             |
 | Overflow guard      | `err_overflow_s`, `err_overflow_S`                                                                                                         | `(size_t)val > SIZE_MAX / multiplier` for `-s` and `-S` (huge value × large suffix)                                                  |
