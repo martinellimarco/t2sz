@@ -1037,9 +1037,14 @@ void compressFile(Context *ctx){
             size_t blockSize = 0;
             if(ctx->rawMode){
                 if(ctx->minBlockSize){
+                    const size_t remaining =
+                        (size_t)((ctx->inBuff + ctx->inBuffSize) - readBuff);
+                    if(remaining == 0){
+                        break;
+                    }
                     blockSize = ctx->minBlockSize;
-                    if(readBuff+blockSize > ctx->inBuff+ctx->inBuffSize){
-                        blockSize = ctx->inBuff+ctx->inBuffSize - readBuff;
+                    if(blockSize > remaining){
+                        blockSize = remaining;
                         lastChunk = true;
                     }
                 }else{
@@ -1424,6 +1429,19 @@ static void parseArgs(int argc, char **argv, Context *ctx, bool *overwrite){
             case 'h':
                 usage(executable, NULL);
                 break;
+            case '?': {
+                const char *opts = "l:o:s:S:T:rjVfvh";
+                const char *p = optopt ? strchr(opts, optopt) : NULL;
+                if(p && p[1] == ':'){
+                    char msg[64];
+                    snprintf(msg, sizeof(msg),
+                             "ERROR: Option -%c requires an argument", optopt);
+                    usage(executable, msg);
+                }else{
+                    usage(executable, "ERROR: Unknown option");
+                }
+                break;
+            }
             default:
                 usage(executable, "ERROR: Unknown option");
                 break;

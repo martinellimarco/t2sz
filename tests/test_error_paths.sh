@@ -717,8 +717,7 @@ overflow_S)
 # ── seekTableEnsureCap realloc growth (>1024 frames) ──────────────────────
 
 seektable_grow)
-    # Compress 1049600 bytes (1025 × 1024) with -s 1k to produce 1026 frames
-    # (1025 data blocks + 1 trailing empty frame for exact multiple in mmap).
+    # Compress 1049600 bytes (1025 × 1024) with -s 1k to produce 1025 frames.
     # This exceeds the initial seek table capacity (1024 entries), triggering
     # seekTableEnsureCap() to grow: realloc from 1024 → 2048 entries.
     # Covers both branch (180:21) ctx->seekTableCap ternary True path
@@ -735,7 +734,7 @@ seektable_grow)
         log_fail "$TEST_NAME — SHA mismatch"
         exit 1
     fi
-    verify_seek_table "$WORK/out.zst" 1026 || exit 1
+    verify_seek_table "$WORK/out.zst" 1025 || exit 1
     log_pass "$TEST_NAME"
     ;;
 

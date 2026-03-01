@@ -68,26 +68,10 @@ has_flag() {
     return 1
 }
 
-# Compute expected frame count for raw mode (mmap path).
-# In mmap mode, when SIZE is an exact multiple of -s, there is an extra empty
-# trailing frame (the loop enters one more iteration with blockSize=0).
-# In stdin mode, fread returns 0 at EOF and the loop exits — no extra frame.
-compute_raw_frames_mmap() {
-    local size="$1"; shift
-    local s_val
-    s_val=$(extract_s_value "$@")
-    if [ "$s_val" -eq 0 ]; then
-        echo 1
-    elif [ $(( size % s_val )) -eq 0 ]; then
-        echo $(( size / s_val + 1 ))
-    else
-        echo $(( (size + s_val - 1) / s_val ))
-    fi
-}
-
-# Compute expected frame count for raw mode (stdin path).
-# No extra trailing frame — fread returns 0 at EOF.
-compute_raw_frames_stdin() {
+# Compute expected frame count for raw mode (both mmap and stdin paths).
+# Both paths now skip the empty trailing frame when the input is an exact
+# multiple of -s, producing ceiling(SIZE / s) frames.
+compute_raw_frames() {
     local size="$1"; shift
     local s_val
     s_val=$(extract_s_value "$@")
@@ -129,21 +113,11 @@ verify_roundtrip_seek_table() {
     fi
 
     case "$kind" in
-        -raw-mmap)
+        -raw-mmap|-raw-stdin)
             local size="${kind_args[0]}"
             if has_flag "-s" "$@"; then
                 local expected_frames
-                expected_frames=$(compute_raw_frames_mmap "$size" "$@")
-                verify_seek_table "$compressed" "$expected_frames" || exit 1
-            else
-                verify_seek_table "$compressed" 1 || exit 1
-            fi
-            ;;
-        -raw-stdin)
-            local size="${kind_args[0]}"
-            if has_flag "-s" "$@"; then
-                local expected_frames
-                expected_frames=$(compute_raw_frames_stdin "$size" "$@")
+                expected_frames=$(compute_raw_frames "$size" "$@")
                 verify_seek_table "$compressed" "$expected_frames" || exit 1
             else
                 verify_seek_table "$compressed" 1 || exit 1
