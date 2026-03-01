@@ -639,8 +639,8 @@ static void compressStdinRaw(Context *ctx){
                 }
             }
 
-            if (n == 0) {
-                if (ferror(stdin)) {
+            if(n == 0){
+                if(ferror(stdin)){
                     fprintf(stderr, "ERROR: Read error on stdin\n");
                     free(inBuf);
                     exit(EXIT_FAILURE);
