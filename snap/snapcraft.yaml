@@ -1,5 +1,5 @@
 name: t2sz
-base: core20
+base: core24
 version: '1.2.0'
 summary: It compresses a file into a seekable .zstd file
 description: |
