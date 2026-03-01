@@ -115,7 +115,7 @@ When the fuzzer finds a crash, the recommended workflow is:
    file to t2sz and asserts the expected behavior (non-zero exit, no crash).
 4. Register the test in `tests/CMakeLists.txt` and update `TESTING.md`.
 5. Fix the bug in `src/t2sz.c`.
-6. Verify: the crash reproducer now passes, and all 76+ tests still pass.
+6. Verify: the crash reproducer now passes, and all 78+ tests still pass.
 
 This ensures the bug never regresses.
 
@@ -142,6 +142,17 @@ t2sz calls `exit(EXIT_FAILURE)` on parse errors and fatal conditions. Inside
 a libFuzzer harness, `exit()` would kill the fuzzer process. The harnesses
 override `exit()` to `longjmp` back to a recovery point, allowing cleanup
 and the next iteration. This is a well-established fuzzing technique.
+
+When `fuzz_active` is false (e.g., during libFuzzer's own startup/shutdown),
+the override calls the **real** libc `exit()` resolved via
+`dlsym(RTLD_NEXT, "exit")`. This preserves `atexit` handlers and stdio
+flushing, ensuring libFuzzer's summary report is printed on exit. The
+`real_exit` pointer is initialized in an `__attribute__((constructor))`
+function before `main()` runs.
+
+The `setjmp`/`fuzz_active=1` sequence is set **before** `newContext()` so
+that even an OOM inside `newContext()` is caught by the longjmp recovery
+rather than terminating the process via `_exit()`.
 
 Resources leaked by the interrupted code path (e.g., `chunkBuf` inside
 `compressStdinTar`) are harmless — they are tiny and the fuzzer runs with

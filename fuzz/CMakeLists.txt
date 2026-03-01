@@ -42,7 +42,12 @@ function(add_fuzz_target name)
         ${FUZZ_EXTRA_LINK_FLAGS}
     )
     target_include_directories(${name} PRIVATE ${ZSTD_INC})
-    target_link_libraries(${name} ${ZSTD_LIB} m)
+    # dlsym(RTLD_NEXT) is used in the exit() override; Linux needs -ldl.
+    if(NOT APPLE)
+        target_link_libraries(${name} ${ZSTD_LIB} m dl)
+    else()
+        target_link_libraries(${name} ${ZSTD_LIB} m)
+    endif()
 endfunction()
 
 # ── Fuzz targets ─────────────────────────────────────────────────────────────

@@ -28,19 +28,33 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <getopt.h>
+#include <dlfcn.h>
 
 /* ── setjmp/longjmp trap for exit() ─────────────────────────────────────────
  *
  * parseArgs() calls usage() on invalid arguments, which calls exit().
  * The -V flag calls version() then exit(). We catch all of these via
  * longjmp so the fuzzer survives and proceeds to the next iteration.
+ *
+ * We resolve the real libc exit() via dlsym(RTLD_NEXT) so that when
+ * fuzz_active is false (e.g. libFuzzer shutdown), atexit handlers and
+ * stdio buffers are flushed properly — preserving the summary report.
  */
 static jmp_buf fuzz_jmp;
 static volatile int fuzz_active = 0;
 
+static void (*real_exit)(int);
+
+__attribute__((constructor))
+static void init_real_exit(void) {
+    real_exit = (void (*)(int))dlsym(RTLD_NEXT, "exit");
+}
+
 void exit(int status) {
     if (fuzz_active)
         longjmp(fuzz_jmp, status ? status : 1);
+    if (real_exit)
+        real_exit(status);
     _exit(status);
 }
 
@@ -113,13 +127,16 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         close(devnull2);
     }
 
-    /* Call parseArgs() — exit() calls are caught by longjmp. */
-    Context *ctx = newContext();
+    /* Call parseArgs() — exit() calls are caught by longjmp.
+     * fuzz_active is set BEFORE newContext() so that even an OOM inside
+     * newContext() is caught by longjmp rather than killing the process. */
+    Context *ctx = NULL;
     bool overwrite = false;
 
     fuzz_active = 1;
     int jumped = setjmp(fuzz_jmp);
     if (jumped == 0) {
+        ctx = newContext();
         parseArgs(argc, argv, ctx, &overwrite);
     }
     fuzz_active = 0;
@@ -134,7 +151,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         close(saved_stderr);
     }
 
-    /* Cleanup. */
+    /* Cleanup — ctx may be NULL if newContext() triggered longjmp. */
     free(ctx);
     free(argv);
     free(copy);

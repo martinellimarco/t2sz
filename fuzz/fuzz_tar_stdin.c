@@ -21,17 +21,32 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <dlfcn.h>
 
 /* libFuzzer provides this symbol at link time; declare it for the compiler. */
 extern size_t LLVMFuzzerMutate(uint8_t *data, size_t size, size_t max_size);
 
-/* ── setjmp/longjmp trap for exit() ─────────────────────────────────────────*/
+/* ── setjmp/longjmp trap for exit() ─────────────────────────────────────────
+ *
+ * We resolve the real libc exit() via dlsym(RTLD_NEXT) so that when
+ * fuzz_active is false (e.g. libFuzzer shutdown), atexit handlers and
+ * stdio buffers are flushed properly — preserving the summary report.
+ */
 static jmp_buf fuzz_jmp;
 static volatile int fuzz_active = 0;
+
+static void (*real_exit)(int);
+
+__attribute__((constructor))
+static void init_real_exit(void) {
+    real_exit = (void (*)(int))dlsym(RTLD_NEXT, "exit");
+}
 
 void exit(int status) {
     if (fuzz_active)
         longjmp(fuzz_jmp, status ? status : 1);
+    if (real_exit)
+        real_exit(status);
     _exit(status);
 }
 
@@ -52,8 +67,13 @@ static void fix_tar_checksum(uint8_t *data, size_t size) {
 size_t LLVMFuzzerCustomMutator(uint8_t *data, size_t size,
                                 size_t max_size, unsigned int seed) {
     size_t new_size = LLVMFuzzerMutate(data, size, max_size);
+    /* Full 512-byte zero check, matching the parser's isZeroTarBlock(). */
     for (size_t off = 0; off + 512 <= new_size; off += 512) {
-        if (data[off] != 0)
+        bool allZero = true;
+        for (size_t i = 0; i < 512; i++) {
+            if (data[off + i] != 0) { allZero = false; break; }
+        }
+        if (!allZero)
             fix_tar_checksum(data + off, 512);
     }
     return new_size;
@@ -87,17 +107,21 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         close(devnull);
     }
 
-    /* Build a Context for the stdin tar path. */
-    Context *ctx = newContext();
-    ctx->rawMode    = false;
-    ctx->stdinMode  = true;
-    ctx->stdoutMode = true;
-    ctx->level      = 1;
-    ctx->verbose    = false;
+    /* Build a Context for the stdin tar path.
+     * fuzz_active is set BEFORE newContext() so that even an OOM inside
+     * newContext() is caught by longjmp rather than killing the process. */
+    Context *ctx = NULL;
 
     fuzz_active = 1;
     int jumped = setjmp(fuzz_jmp);
     if (jumped == 0) {
+        ctx = newContext();
+        ctx->rawMode    = false;
+        ctx->stdinMode  = true;
+        ctx->stdoutMode = true;
+        ctx->level      = 1;
+        ctx->verbose    = false;
+
         prepareOutput(ctx);
         prepareCctx(ctx);
         compressStdinTar(ctx);
@@ -124,12 +148,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         close(saved_stderr);
     }
 
-    /* Cleanup — handle partial state from interrupted exit(). */
-    if (ctx->cctx)    ZSTD_freeCCtx(ctx->cctx);
-    if (ctx->outBuff) free(ctx->outBuff);
-    if (ctx->seekTable) free(ctx->seekTable);
-    if (ctx->outFile && ctx->outFile != stdout) fclose(ctx->outFile);
-    free(ctx);
+    /* Cleanup — handle partial state from interrupted exit().
+     * ctx may be NULL if newContext() triggered longjmp. */
+    if (ctx) {
+        if (ctx->cctx)    ZSTD_freeCCtx(ctx->cctx);
+        if (ctx->outBuff) free(ctx->outBuff);
+        if (ctx->seekTable) free(ctx->seekTable);
+        if (ctx->outFile && ctx->outFile != stdout) fclose(ctx->outFile);
+        free(ctx);
+    }
 
     return 0;
 }
