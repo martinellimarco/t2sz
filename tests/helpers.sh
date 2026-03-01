@@ -40,6 +40,17 @@ log_skip() { printf "${YELLOW}[SKIP]${NC} %s\n" "$*"; SKIP_COUNT=$((SKIP_COUNT +
 log_info() { printf "       %s\n" "$*"; }
 log_step() { printf "${CYAN}  →${NC} %s\n" "$*"; }
 
+# ── require_zstd ──────────────────────────────────────────────────────────────
+# Verifies that the zstd CLI is available. If missing, logs a skip message and
+# exits with code 77 (CTest SKIP_RETURN_CODE) so tests are marked as skipped
+# rather than failed.
+require_zstd() {
+    if ! command -v zstd >/dev/null 2>&1; then
+        log_skip "zstd CLI not found — skipping test (install with: brew install zstd / apt install zstd)"
+        exit 77
+    fi
+}
+
 # ── sha256_file <path> ────────────────────────────────────────────────────────
 # Prints just the hex hash string (no filename).
 sha256_file() {

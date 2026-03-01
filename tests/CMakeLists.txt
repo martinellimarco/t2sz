@@ -27,7 +27,7 @@ function(add_roundtrip_test name)
                     ${ARGN}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
-    set_tests_properties(${name} PROPERTIES TIMEOUT 300)
+    set_tests_properties(${name} PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
 endfunction()
 
 # ── helper: register a CLI / error-path test ─────────────────────────────────
@@ -44,7 +44,7 @@ function(add_error_test name test_id)
                     ${test_id}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
-    set_tests_properties(${name} PROPERTIES TIMEOUT 30)
+    set_tests_properties(${name} PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
 endfunction()
 
 # ── LLVM_PROFILE_FILE for coverage builds ────────────────────────────────────

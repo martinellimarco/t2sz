@@ -59,7 +59,7 @@ cmake --build build_fuzz
 CC=/opt/homebrew/opt/llvm/bin/clang cmake -B build_fuzz -DFUZZ=ON
 cmake --build build_fuzz
 
-# Generate the seed corpus (10 files per harness)
+# Generate the seed corpus (10 tar seeds + 15 CLI seeds)
 cmake --build build_fuzz --target fuzz_corpus
 
 # Run the mmap harness (most important target)

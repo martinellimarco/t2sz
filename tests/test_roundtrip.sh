@@ -28,6 +28,8 @@ set -eo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/helpers.sh"
 
+require_zstd
+
 T2SZ="$1"
 GEN_BLOB="$2"
 BLOBS_DIR="$3"
