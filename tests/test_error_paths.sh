@@ -223,7 +223,7 @@ corrupt_tar)
 auto_raw)
     # A file not ending in ".tar" must be treated as raw mode automatically
     # without requiring the -r flag, covering the strEndsWith() branch that
-    # sets rawMode = !strEndsWith(inFilename, "tar") = true.
+    # sets rawMode = !strEndsWith(inFilename, ".tar") = true.
     make_small_dat "$WORK/input.dat"
     assert_exit 0  "$T2SZ" -o "$WORK/out.zst" -f "$WORK/input.dat"
     log_pass "$TEST_NAME"
