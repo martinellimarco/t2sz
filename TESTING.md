@@ -144,7 +144,7 @@ bash ../tests/test_coverage.sh ../build_cov
 | Non-multiple `-s` (stdin) | `err_stdin_raw_nonmultiple_s` | same via stdin: `compressStdinRaw()` Path B partial last frame                                   |
 | Trailing junk after tar   | `err_trailing_junk_tar`       | 1024 bytes of 0xAA appended after end-of-archive: both mmap and stdin must not crash             |
 | Non-regular tar entries   | `err_tar_with_dirs_symlinks`  | directory + symlink + regular file: round-trip + seek table structure verification               |
-| Seek table capacity grow  | `err_seektable_grow`          | 1025×1k raw → 1026 frames, forces `seekTableEnsureCap()` realloc from 1024 to 2048 entries       |
+| Seek table capacity grow  | `err_seektable_grow`          | 1025×1k raw → 1025 frames, forces `seekTableEnsureCap()` realloc from 1024 to 2048 entries       |
 
 Large tests (`raw_1gb`, `tar_500mb`) return exit code 77 when disk space is insufficient; CTest treats this as a skip rather than a failure.
 
