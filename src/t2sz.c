@@ -98,6 +98,24 @@ bool isTarHeader(const TarHeader* header){
     return true;
 }
 
+/**
+ * Safely parse the octal size field from a tar header.
+ *
+ * The size field is a fixed 12-byte array that is not guaranteed to be
+ * NUL-terminated for malformed inputs. This function copies it into a
+ * local buffer and NUL-terminates before calling strtoul, matching the
+ * defensive pattern already used in isTarHeader() for the checksum field.
+ *
+ * @param header  Pointer to the tar header.
+ * @return        Parsed file size in bytes.
+ */
+static size_t parseTarSize(const TarHeader *header){
+    char buf[13];
+    memcpy(buf, header->size, 12);
+    buf[12] = '\0';
+    return (size_t)strtoul(buf, NULL, 8);
+}
+
 typedef struct {
     uint32_t compressedSize;
     uint32_t decompressedSize;
@@ -167,6 +185,28 @@ void writeLE32(void* dst, const uint32_t data){
 }
 
 /**
+ * Write @p len bytes to @p f, aborting on short writes.
+ *
+ * Wraps fwrite() with an error check so that I/O failures (disk full,
+ * broken pipe, etc.) are caught immediately instead of silently
+ * producing a corrupt output file.
+ *
+ * @param buf  Source buffer.
+ * @param len  Number of bytes to write.
+ * @param f    Destination file stream.
+ * @return     Number of bytes written (always @p len on success).
+ */
+static size_t checkedFwrite(const void *buf, const size_t len, FILE *f){
+    if(len == 0) return 0;
+    const size_t written = fwrite(buf, 1, len, f);
+    if(written != len){
+        fprintf(stderr, "ERROR: Failed to write output: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+    return written;
+}
+
+/**
  * Append the zstd seekable-format seek table to the output file.
  *
  * Writes a Skippable frame (magic 0x184D2A5E | 0xE) containing:
@@ -184,11 +224,11 @@ void writeSeekTable(const Context *ctx){
     uint8_t buf[4];
     //Skippable_Magic_Number
     writeLE32(buf, ZSTD_MAGIC_SKIPPABLE_START | 0xE);
-    fwrite(buf, 4, 1, ctx->outFile);
-    
+    checkedFwrite(buf, 4, ctx->outFile);
+
     //Frame_Size
     writeLE32(buf, (uint32_t)ctx->seekTableLen*8 + 9);
-    fwrite(buf, 4, 1, ctx->outFile);
+    checkedFwrite(buf, 4, ctx->outFile);
         
     if(ctx->verbose){
         fprintf(stderr, "\n---- seek table ----\n");
@@ -201,11 +241,11 @@ void writeSeekTable(const Context *ctx){
 
         //Compressed_Size
         writeLE32(buf, e->compressedSize);
-        fwrite(buf, 4, 1, ctx->outFile);
+        checkedFwrite(buf, 4, ctx->outFile);
 
         //Decompressed_Size
         writeLE32(buf, e->decompressedSize);
-        fwrite(buf, 4, 1, ctx->outFile);
+        checkedFwrite(buf, 4, ctx->outFile);
 
         if(ctx->verbose){
             fprintf(stderr, "%u\t%u\n", e->decompressedSize, e->compressedSize);
@@ -215,15 +255,15 @@ void writeSeekTable(const Context *ctx){
     //Seek_Table_Footer
     //Number_Of_Frames
     writeLE32(buf, (uint32_t)ctx->seekTableLen);
-    fwrite(buf, 4, 1, ctx->outFile);
-    
+    checkedFwrite(buf, 4, ctx->outFile);
+
     //Seek_Table_Descriptor
     buf[0] = 0;
-    fwrite(buf, 1, 1, ctx->outFile);
-    
+    checkedFwrite(buf, 1, ctx->outFile);
+
     //Seekable_Magic_Number
     writeLE32(buf, 0x8F92EAB1);
-    fwrite(buf, 4, 1, ctx->outFile);
+    checkedFwrite(buf, 4, ctx->outFile);
 }
 
 /**
@@ -343,6 +383,12 @@ void prepareInput(Context *ctx){
     }
     if(end == 0){
         fprintf(stderr, "ERROR: Empty input file '%s'\n", ctx->inFilename);
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+    if((unsigned long long)end > SIZE_MAX){
+        fprintf(stderr, "ERROR: Input file '%s' is too large to map into memory\n",
+                ctx->inFilename);
         close(fd);
         exit(EXIT_FAILURE);
     }
@@ -491,7 +537,7 @@ static uint64_t zstdCompressBufferToFrame(const Context *ctx, const uint8_t *src
             fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(remaining));
             exit(EXIT_FAILURE);
         }
-        compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
+        compressedSize += checkedFwrite(ctx->outBuff, output.pos, ctx->outFile);
 
         if(mode == ZSTD_e_end && remaining == 0){
             break;
@@ -525,7 +571,7 @@ static uint64_t zstdEndFrame(const Context *ctx){
             fprintf(stderr, "ERROR: Can't end frame: %s\n", ZSTD_getErrorName(remaining));
             exit(EXIT_FAILURE);
         }
-        compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
+        compressedSize += checkedFwrite(ctx->outBuff, output.pos, ctx->outFile);
         if(remaining == 0) {
             break;
         }
@@ -583,7 +629,7 @@ static void compressStdinRaw(Context *ctx){
                         free(inBuf);
                         exit(EXIT_FAILURE);
                     }
-                    compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
+                    compressedSize += checkedFwrite(ctx->outBuff, output.pos, ctx->outFile);
                 }
             }
 
@@ -771,7 +817,7 @@ static void pushBytesTar(Context *ctx, const uint8_t *src, const size_t n, uint6
                 fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(rem));
                 exit(EXIT_FAILURE);
             }
-            *frameOut += fwrite(ctx->outBuff, 1, out.pos, ctx->outFile);
+            *frameOut += checkedFwrite(ctx->outBuff, out.pos, ctx->outFile);
         }
 
         *frameIn += canWrite;
@@ -866,7 +912,7 @@ static void compressStdinTar(Context *ctx){
         // Header is valid — include the 512-byte block in the stream.
         pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
 
-        const size_t fileSize = strtoul(header->size, NULL, 8);
+        const size_t fileSize = parseTarSize(header);
 
         // pad to 512
         size_t padded = fileSize;
@@ -1001,7 +1047,7 @@ void compressFile(Context *ctx){
                     }else if(ctx->inBuff[tarHeaderIdx]){//tar ends with null headers that we can skip
                         TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
                         if(isTarHeader(header)){
-                            size_t size = strtoul(header->size, NULL, 8);
+                            size_t size = parseTarSize(header);
 
                             const size_t mod = size%512;
                             if(mod){
@@ -1058,7 +1104,7 @@ void compressFile(Context *ctx){
                     fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(remaining));
                     exit(EXIT_FAILURE);
                 }
-                compressedSize += fwrite(ctx->outBuff, 1, output.pos, ctx->outFile);
+                compressedSize += checkedFwrite(ctx->outBuff, output.pos, ctx->outFile);
             }while(mode==ZSTD_e_continue || remaining>0);
 
             seekTableAdd(ctx, compressedSize, blockSize);
