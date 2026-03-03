@@ -1,9 +1,9 @@
 .idea
 build
-build_asan/
-build_cov/
-build_fuzz/
+build_*/
+build-windows-*/
+out/
 tests/blobs/
 tests/coverage/
-tests/cmake-build-*
-cmake-build-*
+tests/cmake-build-*/
+cmake-build-*/

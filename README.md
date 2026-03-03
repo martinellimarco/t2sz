@@ -66,6 +66,17 @@ then install it with
 sudo dpkg -i t2sz*.deb
 ```
 
+### Windows (cross-compilation)
+
+On macOS or Linux, cross-compile static Windows executables using Docker:
+
+```bash
+docker run --rm -v "$(pwd)":/src ubuntu:24.04 bash /src/windows/win-cross-build.sh both
+```
+
+This produces `t2sz.exe` for both amd64 and arm64 in `build-windows-{amd64,arm64}-release/`.
+Pre-built executables are also available on the [release page](https://github.com/martinellimarco/t2sz/releases/latest).
+
 ## Usage
 
 ```commandline

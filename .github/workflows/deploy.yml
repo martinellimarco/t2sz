@@ -76,6 +76,26 @@ jobs:
         run: |
           gh release upload "${GITHUB_REF##*/}" ${{runner.workspace}}/build/*.deb
 
+  build-windows:
+    needs: [test, test-asan]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cross-compile Windows (Release, amd64 + arm64)
+        run: bash windows/win-cross-build.sh both
+
+      - name: Cross-compile + test Windows (Debug, amd64 via Wine)
+        run: bash windows/win-cross-test.sh
+
+      - name: Upload Windows executables
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp build-windows-amd64-release/t2sz.exe t2sz-amd64.exe
+          cp build-windows-arm64-release/t2sz.exe t2sz-arm64.exe
+          gh release upload "${GITHUB_REF##*/}" t2sz-amd64.exe t2sz-arm64.exe
+
   homebrew:
     needs: [build]
     runs-on: ubuntu-24.04
