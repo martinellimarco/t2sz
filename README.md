@@ -34,6 +34,8 @@ To take advantage of seeking see the following projects:
 
 ## Build
 
+### Linux
+
 You'll need `libzstd-dev`
 
 ```bash
@@ -64,6 +66,28 @@ then install it with
 
 ```bash
 sudo dpkg -i t2sz*.deb
+```
+
+### macOS
+
+You'll need `zstd` from Homebrew:
+
+```bash
+brew install zstd
+```
+
+```bash
+git clone https://github.com/martinellimarco/t2sz
+mkdir t2sz/build
+cd t2sz/build
+cmake .. -DCMAKE_BUILD_TYPE="Release"
+make
+```
+
+Install with
+
+```bash
+sudo make install
 ```
 
 ### Windows (cross-compilation)
