@@ -1,14 +1,14 @@
 # Contributor: Marco Martinelli <marco+t2sz@13byte.com>
 # Maintainer: Marco Martinelli <marco+t2sz@13byte.com>
 pkgname=t2sz
-pkgver=1.2.1
+pkgver=1.2.2
 pkgrel=0
 pkgdesc="t2sz compresses a file into a seekable zstd with special handling for tar archives."
 url="https://github.com/martinellimarco/t2sz"
 arch="all"
 license="GPL-3.0-or-later"
 depends="zstd-dev"
-makedepends="git cmake"
+makedepends="git cmake ninja bash"
 source="$pkgname-$pkgver.tar.gz::https://github.com/martinellimarco/t2sz/archive/refs/tags/v$pkgver.tar.gz"
 builddir="$srcdir/"
 
