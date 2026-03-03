@@ -407,7 +407,7 @@ raw_nonmultiple_s)
     # Input size 1000001 bytes, -s 256k (262144). Not a multiple.
     # Expected frames: ceil(1000001 / 262144) = 4 (last frame is 213569 bytes).
     # Round-trip SHA-256 + seek table verification.
-    dd if=/dev/urandom of="$WORK/input.bin" bs=1 count=1000001 2>/dev/null
+    head -c 1000001 /dev/urandom > "$WORK/input.bin"
     sha_before=$(sha256_file "$WORK/input.bin")
     assert_exit 0  "$T2SZ" -r -s 256k -o "$WORK/out.zst" -f "$WORK/input.bin"
     zstd -d -f -q "$WORK/out.zst" -o "$WORK/dec.bin" || {
@@ -427,7 +427,7 @@ raw_nonmultiple_s)
 
 stdin_raw_nonmultiple_s)
     # Same as raw_nonmultiple_s but via stdin, exercising compressStdinRaw() Path B.
-    dd if=/dev/urandom of="$WORK/input.bin" bs=1 count=1000001 2>/dev/null
+    head -c 1000001 /dev/urandom > "$WORK/input.bin"
     sha_before=$(sha256_file "$WORK/input.bin")
     assert_exit 0  "$T2SZ" -r -s 256k -o "$WORK/out.zst" -f - < "$WORK/input.bin"
     zstd -d -f -q "$WORK/out.zst" -o "$WORK/dec.bin" || {

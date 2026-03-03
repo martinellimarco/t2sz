@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(t2sz VERSION 1.2.2 LANGUAGES C)
+project(t2sz VERSION 1.2.3 LANGUAGES C)
 
 add_definitions(-DVERSION="${PROJECT_VERSION}")
 
@@ -64,7 +64,7 @@ target_include_directories(t2sz PRIVATE ${ZSTD_INC})
 target_link_libraries(t2sz ${ZSTD_LIB} m)
 
 if (CMAKE_BUILD_TYPE STREQUAL Release)
-    add_custom_command(TARGET t2sz POST_BUILD COMMAND ${CMAKE_STRIP} t2sz)
+    add_custom_command(TARGET t2sz POST_BUILD COMMAND ${CMAKE_STRIP} $<TARGET_FILE:t2sz>)
 endif ()
 
 install(TARGETS t2sz)

@@ -34,6 +34,8 @@ To take advantage of seeking see the following projects:
 
 ## Build
 
+### Linux
+
 You'll need `libzstd-dev`
 
 ```bash
@@ -65,6 +67,39 @@ then install it with
 ```bash
 sudo dpkg -i t2sz*.deb
 ```
+
+### macOS
+
+You'll need `zstd` from Homebrew:
+
+```bash
+brew install zstd
+```
+
+```bash
+git clone https://github.com/martinellimarco/t2sz
+mkdir t2sz/build
+cd t2sz/build
+cmake .. -DCMAKE_BUILD_TYPE="Release"
+make
+```
+
+Install with
+
+```bash
+sudo make install
+```
+
+### Windows (cross-compilation)
+
+On macOS or Linux, cross-compile static Windows executables using Docker:
+
+```bash
+docker run --rm -v "$(pwd)":/src ubuntu:24.04 bash /src/windows/win-cross-build.sh both
+```
+
+This produces `t2sz.exe` for both amd64 and arm64 in `build-windows-{amd64,arm64}-release/`.
+Pre-built executables are also available on the [release page](https://github.com/martinellimarco/t2sz/releases/latest).
 
 ## Usage
 

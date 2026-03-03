@@ -63,3 +63,11 @@ jobs:
         id: create-deb-package
         working-directory: ${{runner.workspace}}/build
         run: cpack
+
+  build-windows:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cross-compile + test Windows (amd64 via Wine)
+        run: bash windows/win-cross-test.sh

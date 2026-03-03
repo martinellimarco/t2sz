@@ -182,3 +182,74 @@ act --container-architecture linux/amd64 \
     -P ubuntu-24.04=ghcr.io/catthehacker/ubuntu:act-24.04 \
     push
 ```
+
+## Windows cross-compilation testing (Docker + Wine)
+
+The Windows executables are built with [llvm-mingw](https://github.com/mstorsjo/llvm-mingw)
+and tested under [Wine](https://www.winehq.org/) using the same CTest suite.
+Docker provides a reproducible Linux environment for both macOS and Linux hosts.
+
+Three scripts handle the cross-compilation workflow:
+
+| Script                       | Purpose                                                                  |
+|------------------------------|--------------------------------------------------------------------------|
+| `windows/win-cross-setup.sh` | Shared setup: installs llvm-mingw and downloads zstd source (idempotent) |
+| `windows/win-cross-build.sh` | Builds stripped Release executables for amd64, arm64, or both            |
+| `windows/win-cross-test.sh`  | Builds Debug with tests + LLVM coverage, runs CTest via Wine             |
+
+### Quick start
+
+```bash
+# Debug build + full CTest suite via Wine (amd64):
+docker run --rm --platform linux/amd64 -v "$(pwd)":/src ubuntu:24.04 bash /src/windows/win-cross-test.sh
+
+# Release build (both architectures):
+docker run --rm -v "$(pwd)":/src ubuntu:24.04 bash /src/windows/win-cross-build.sh both
+```
+
+The test script will:
+
+1. Install llvm-mingw and cross-compile zstd + t2sz for Windows
+2. Build with `-DBUILD_TESTS=ON` and LLVM coverage instrumentation
+3. Detect and verify Wine (graceful fallback to build-only if unavailable)
+4. Replace `.exe` files with bash wrappers that invoke Wine transparently
+5. Run all CTest tests through Wine
+6. Generate an LLVM coverage report
+
+### Build directories
+
+| Directory                     | Contents                                                      |
+|-------------------------------|---------------------------------------------------------------|
+| `build-windows-amd64-debug`   | Debug build with tests + coverage (amd64)                     |
+| `build-windows-arm64-debug`   | Debug build with tests (arm64, build-only — Wine unavailable) |
+| `build-windows-amd64-release` | Stripped Release binary (amd64)                               |
+| `build-windows-arm64-release` | Stripped Release binary (arm64)                               |
+
+### Wine wrapper trick
+
+CTest resolves `$<TARGET_FILE:t2sz>` to `t2sz.exe`.  On Linux, file extensions
+are ignored — the kernel checks the shebang.  The test script renames the real
+PE binary to `t2sz.real.exe` and creates a shell script at `t2sz.exe`:
+
+```bash
+#!/bin/bash
+WINEDEBUG=-all exec wine64 "/path/to/t2sz.real.exe" "$@"
+```
+
+This makes all 78 tests run through Wine with zero modifications to the test
+scripts or CMakeLists.txt.
+
+### Environment variables
+
+| Variable           | Default                    | Description                                                  |
+|--------------------|----------------------------|--------------------------------------------------------------|
+| `SRC_DIR`          | parent of script directory | Path to the t2sz source tree                                 |
+| `BUILD_BASE_DIR`   | `SRC_DIR`                  | Where `build-windows-*` directories are created              |
+| `CTEST_JOBS`       | `4`                        | CTest parallelism level (reduce if Wine processes cause OOM) |
+| `CTEST_EXTRA_ARGS` | *(empty)*                  | Extra flags passed to CTest (e.g. `--exclude-regex raw_1gb`) |
+
+### Known limitations
+
+- `raw_1gb` may timeout under Wine + coverage instrumentation (~10 min).
+- arm64 Windows executables cannot be tested (Wine on arm64 Linux hangs).
+- Coverage requires the amd64 platform (LLVM profiling runtime writes via Wine I/O).

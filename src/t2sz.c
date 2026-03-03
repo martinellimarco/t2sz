@@ -19,9 +19,14 @@
 #include <string.h>
 #include <math.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <errno.h>
-#include <sys/mman.h>
+
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+#include "mman_compat.h"
 #include <zstd.h>
 
 typedef struct __attribute__((__packed__)) { /* byte offset */
@@ -1020,6 +1025,21 @@ static void cleanupCompression(Context *ctx){
  *             outFilename or stdoutMode, level, rawMode, block sizes, etc.).
  */
 void compressFile(Context *ctx){
+#ifdef _WIN32
+    if(ctx->stdinMode){
+        if(_setmode(_fileno(stdin), _O_BINARY) == -1){
+            fprintf(stderr, "t2sz: failed to set stdin to binary mode\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    if(ctx->stdoutMode){
+        if(_setmode(_fileno(stdout), _O_BINARY) == -1){
+            fprintf(stderr, "t2sz: failed to set stdout to binary mode\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+#endif
+
     prepareOutput(ctx);
 
     prepareCctx(ctx);
@@ -1135,7 +1155,7 @@ void compressFile(Context *ctx){
             zstdResetFrame(ctx);
             zstdSetPledged(ctx, blockSize, true);
             if(ctx->verbose){
-                fprintf(stderr, "# END OF BLOCK (%lu, %lu)\n\n", blockSize, tarHeaderIdx);
+                fprintf(stderr, "# END OF BLOCK (%zu, %zu)\n\n", blockSize, tarHeaderIdx);
             }
 
             if(readBuff+blockSize > ctx->inBuff+ctx->inBuffSize){
