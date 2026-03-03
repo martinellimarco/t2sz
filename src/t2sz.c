@@ -1027,10 +1027,16 @@ static void cleanupCompression(Context *ctx){
 void compressFile(Context *ctx){
 #ifdef _WIN32
     if(ctx->stdinMode){
-        _setmode(_fileno(stdin), _O_BINARY);
+        if(_setmode(_fileno(stdin), _O_BINARY) == -1){
+            fprintf(stderr, "t2sz: failed to set stdin to binary mode\n");
+            exit(EXIT_FAILURE);
+        }
     }
     if(ctx->stdoutMode){
-        _setmode(_fileno(stdout), _O_BINARY);
+        if(_setmode(_fileno(stdout), _O_BINARY) == -1){
+            fprintf(stderr, "t2sz: failed to set stdout to binary mode\n");
+            exit(EXIT_FAILURE);
+        }
     }
 #endif
 

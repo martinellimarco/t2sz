@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # win-cross-setup.sh — Shared setup for Windows cross-compilation scripts.
 #
 # Installs llvm-mingw and downloads the zstd source tree.  All operations are
@@ -44,14 +45,21 @@ case "$HOST_ARCH" in
 esac
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Install base build tools (idempotent)
+# Install base build tools (idempotent, independent of llvm-mingw)
+# ═══════════════════════════════════════════════════════════════════════════════
+if ! command -v cmake &>/dev/null; then
+    echo "Installing base tools (curl, cmake, make, xz-utils, file)..."
+    $SUDO apt-get update -qq
+    $SUDO apt-get install -y -qq curl cmake make xz-utils file > /dev/null 2>&1
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Install llvm-mingw cross-compiler (idempotent)
 # ═══════════════════════════════════════════════════════════════════════════════
 LLVM_MINGW_DIR="llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-22.04-${LLVM_HOST}"
 
 if [ ! -d "/opt/${LLVM_MINGW_DIR}" ]; then
-    echo "Installing base tools and llvm-mingw ${LLVM_MINGW_VER} (${LLVM_HOST})..."
-    $SUDO apt-get update -qq
-    $SUDO apt-get install -y -qq curl cmake make xz-utils file > /dev/null 2>&1
+    echo "Installing llvm-mingw ${LLVM_MINGW_VER} (${LLVM_HOST})..."
     curl -fsSL \
       "https://github.com/mstorsjo/llvm-mingw/releases/download/${LLVM_MINGW_VER}/${LLVM_MINGW_DIR}.tar.xz" \
       | $SUDO tar -xJ -C /opt

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # win-cross-test.sh — Cross-compile t2sz for Windows and run the full CTest
 # suite through Wine (Debug build with LLVM coverage).
 #
@@ -47,7 +48,11 @@ echo "====================================================="
 # ═══════════════════════════════════════════════════════════════════════════════
 # Install test-specific tools: Wine + zstd CLI
 # ═══════════════════════════════════════════════════════════════════════════════
-$SUDO apt-get install -y -qq zstd > /dev/null 2>&1 || true
+$SUDO apt-get install -y -qq zstd > /dev/null 2>&1
+if ! command -v zstd &>/dev/null; then
+    echo "ERROR: zstd CLI not available — cannot validate test outputs"
+    exit 1
+fi
 
 WINE=""
 if $SUDO apt-get install -y -qq wine > /dev/null 2>&1; then
@@ -148,6 +153,7 @@ timeout 60 env WINEDEBUG=-all $WINE cmd /c exit 2>/dev/null || true
 
 for exe in "$BUILD_DIR/t2sz.exe" "$BUILD_DIR/tests/gen_blob.exe"; do
     real="${exe%.exe}.real.exe"
+    [ -f "$real" ] && continue   # already wrapped from a previous run
     mv "$exe" "$real"
     cat > "$exe" << WRAPPER
 #!/bin/bash

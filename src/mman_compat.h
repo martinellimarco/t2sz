@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 /**
  * Minimal mmap/munmap compatibility layer for Windows (MinGW).
  *
@@ -18,26 +20,31 @@
 #define MAP_PRIVATE 2
 #define MAP_FAILED  ((void*)-1)
 
-static inline void *mmap(void *addr, size_t length, int prot, int flags,
-                         int fd, long long offset)
-{
-    (void)addr; (void)prot; (void)flags; (void)offset;
+static inline void *mmap(void *addr, size_t length, int prot, int flags,  int fd, long long offset){
+    (void)addr;
+    (void)prot;
+    (void)flags;
+
+    if(offset != 0){
+        return MAP_FAILED;
+    }
 
     HANDLE fh = (HANDLE)_get_osfhandle(fd);
-    if(fh == INVALID_HANDLE_VALUE)
+    if(fh == INVALID_HANDLE_VALUE){
         return MAP_FAILED;
+    }
 
     HANDLE mapping = CreateFileMappingA(fh, NULL, PAGE_READONLY, 0, 0, NULL);
-    if(!mapping)
+    if(!mapping){
         return MAP_FAILED;
+    }
 
     void *ptr = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, length);
     CloseHandle(mapping);   /* view keeps the mapping alive */
     return ptr ? ptr : MAP_FAILED;
 }
 
-static inline int munmap(void *addr, size_t length)
-{
+static inline int munmap(void *addr, size_t length){
     (void)length;
     return UnmapViewOfFile(addr) ? 0 : -1;
 }

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
 # win-cross-build.sh — Cross-compile t2sz for Windows (Release, static).
 #
 # Produces stripped executables in build-windows-{arch}-release/.
