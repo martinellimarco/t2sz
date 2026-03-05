@@ -158,15 +158,21 @@ typedef struct {
     bool skipSeekTable;
 } Context;
 
-/**
- * Detect the host byte order at runtime.
- *
- * @return  true on little-endian machines (x86, ARM64), false on big-endian.
- */
-bool isLittleEndian(){
-    volatile int x = 1;
-    return *(char*)(&x) == 1;
+/* Compile-time endianness detection.  GCC/Clang define __BYTE_ORDER__
+ * and __ORDER_LITTLE_ENDIAN__; MSVC is always little-endian on supported
+ * architectures.  If none of the macros are available the runtime
+ * fallback is used (no volatile — the result is constant). */
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+#define IS_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+#elif defined(_WIN32)
+#define IS_LITTLE_ENDIAN 1
+#else
+static inline bool isLittleEndian(void){
+    const int x = 1;
+    return *(const char*)(&x) == 1;
 }
+#define IS_LITTLE_ENDIAN isLittleEndian()
+#endif
 
 /**
  * Write a 32-bit unsigned integer to memory in little-endian byte order.
@@ -178,7 +184,7 @@ bool isLittleEndian(){
  * @param data  The value to store.
  */
 void writeLE32(void* dst, const uint32_t data){
-    if(isLittleEndian()){
+    if(IS_LITTLE_ENDIAN){
         memcpy(dst, &data, sizeof(data));
     }else{
         const uint32_t swap = ((data & 0xFF000000) >> 24) |
