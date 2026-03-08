@@ -158,15 +158,21 @@ typedef struct {
     bool skipSeekTable;
 } Context;
 
-/**
- * Detect the host byte order at runtime.
- *
- * @return  true on little-endian machines (x86, ARM64), false on big-endian.
- */
-bool isLittleEndian(){
-    volatile int x = 1;
-    return *(char*)(&x) == 1;
+/* Compile-time endianness detection.  GCC/Clang define __BYTE_ORDER__
+ * and __ORDER_LITTLE_ENDIAN__; MSVC is always little-endian on supported
+ * architectures.  If none of the macros are available the runtime
+ * fallback is used (no volatile — the result is constant). */
+#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
+#define IS_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+#elif defined(_WIN32)
+#define IS_LITTLE_ENDIAN 1
+#else
+static inline bool isLittleEndian(void){
+    const int x = 1;
+    return *(const char*)(&x) == 1;
 }
+#define IS_LITTLE_ENDIAN isLittleEndian()
+#endif
 
 /**
  * Write a 32-bit unsigned integer to memory in little-endian byte order.
@@ -178,7 +184,7 @@ bool isLittleEndian(){
  * @param data  The value to store.
  */
 void writeLE32(void* dst, const uint32_t data){
-    if(isLittleEndian()){
+    if(IS_LITTLE_ENDIAN){
         memcpy(dst, &data, sizeof(data));
     }else{
         const uint32_t swap = ((data & 0xFF000000) >> 24) |
@@ -365,8 +371,12 @@ Context* newContext(){
  * into ctx->inBuff. Aborts on any I/O error or if the file is empty.
  * No-op when ctx->stdinMode is true (stdin is handled separately).
  *
+ * If the input is not seekable (pipe, FIFO, or process substitution such
+ * as bash's <(...)), redirects the fd to stdin via dup2() and sets
+ * ctx->stdinMode = true so the caller falls through to the streaming path.
+ *
  * @param ctx  The compression context (reads inFilename, stdinMode;
- *             writes inBuff, inBuffSize).
+ *             writes inBuff, inBuffSize, stdinMode).
  */
 void prepareInput(Context *ctx){
     if(ctx->stdinMode){
@@ -388,9 +398,19 @@ void prepareInput(Context *ctx){
 
     const off_t end = lseek(fd, 0, SEEK_END);
     if(end < 0){
-        fprintf(stderr, "ERROR: Unable to seek '%s'\n", ctx->inFilename);
-        close(fd);
-        exit(EXIT_FAILURE);
+        // Non-seekable input (pipe, FIFO, or process substitution).
+        // Redirect to stdin so the streaming code path can handle it.
+        if(fd != STDIN_FILENO){
+            if(dup2(fd, STDIN_FILENO) < 0){
+                fprintf(stderr, "ERROR: Unable to redirect '%s' to stdin\n",
+                        ctx->inFilename);
+                close(fd);
+                exit(EXIT_FAILURE);
+            }
+            close(fd);
+        }
+        ctx->stdinMode = true;
+        return;
     }
     if(end == 0){
         fprintf(stderr, "ERROR: Empty input file '%s'\n", ctx->inFilename);
@@ -1025,6 +1045,12 @@ static void cleanupCompression(Context *ctx){
  *             outFilename or stdoutMode, level, rawMode, block sizes, etc.).
  */
 void compressFile(Context *ctx){
+    // For file inputs, prepareInput() may detect a non-seekable source
+    // (pipe, FIFO, process substitution) and switch to stdinMode.
+    if(!ctx->stdinMode){
+        prepareInput(ctx);
+    }
+
 #ifdef _WIN32
     if(ctx->stdinMode){
         if(_setmode(_fileno(stdin), _O_BINARY) == -1){
@@ -1053,7 +1079,6 @@ void compressFile(Context *ctx){
 
         cleanupCompression(ctx);
     }else{
-        prepareInput(ctx);
 
         size_t tarHeaderIdx = 0;
         uint8_t* readBuff = ctx->inBuff;
