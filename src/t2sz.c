@@ -371,8 +371,12 @@ Context* newContext(){
  * into ctx->inBuff. Aborts on any I/O error or if the file is empty.
  * No-op when ctx->stdinMode is true (stdin is handled separately).
  *
+ * If the input is not seekable (pipe, FIFO, or process substitution such
+ * as bash's <(...)), redirects the fd to stdin via dup2() and sets
+ * ctx->stdinMode = true so the caller falls through to the streaming path.
+ *
  * @param ctx  The compression context (reads inFilename, stdinMode;
- *             writes inBuff, inBuffSize).
+ *             writes inBuff, inBuffSize, stdinMode).
  */
 void prepareInput(Context *ctx){
     if(ctx->stdinMode){
@@ -394,9 +398,19 @@ void prepareInput(Context *ctx){
 
     const off_t end = lseek(fd, 0, SEEK_END);
     if(end < 0){
-        fprintf(stderr, "ERROR: Unable to seek '%s'\n", ctx->inFilename);
-        close(fd);
-        exit(EXIT_FAILURE);
+        // Non-seekable input (pipe, FIFO, or process substitution).
+        // Redirect to stdin so the streaming code path can handle it.
+        if(fd != STDIN_FILENO){
+            if(dup2(fd, STDIN_FILENO) < 0){
+                fprintf(stderr, "ERROR: Unable to redirect '%s' to stdin\n",
+                        ctx->inFilename);
+                close(fd);
+                exit(EXIT_FAILURE);
+            }
+            close(fd);
+        }
+        ctx->stdinMode = true;
+        return;
     }
     if(end == 0){
         fprintf(stderr, "ERROR: Empty input file '%s'\n", ctx->inFilename);
@@ -1031,6 +1045,12 @@ static void cleanupCompression(Context *ctx){
  *             outFilename or stdoutMode, level, rawMode, block sizes, etc.).
  */
 void compressFile(Context *ctx){
+    // For file inputs, prepareInput() may detect a non-seekable source
+    // (pipe, FIFO, process substitution) and switch to stdinMode.
+    if(!ctx->stdinMode){
+        prepareInput(ctx);
+    }
+
 #ifdef _WIN32
     if(ctx->stdinMode){
         if(_setmode(_fileno(stdin), _O_BINARY) == -1){
@@ -1059,7 +1079,6 @@ void compressFile(Context *ctx){
 
         cleanupCompression(ctx);
     }else{
-        prepareInput(ctx);
 
         size_t tarHeaderIdx = 0;
         uint8_t* readBuff = ctx->inBuff;
