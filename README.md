@@ -1,7 +1,8 @@
 [![Build Status](https://github.com/martinellimarco/t2sz/workflows/Test%20Build/badge.svg)](https://github.com/martinellimarco/t2sz/actions)
 [![License](https://img.shields.io/badge/license-GPLv3-green.svg)](https://github.com/martinellimarco/t2sz/blob/main/LICENSE)
-[![t2sz](https://snapcraft.io/t2sz/badge.svg)](https://snapcraft.io/t2sz)
 [![AUR version](https://img.shields.io/aur/version/t2sz)](https://aur.archlinux.org/packages/t2sz/)
+[![Homebrew version](https://img.shields.io/homebrew/v/t2sz)](https://formulae.brew.sh/formula/t2sz)
+[![Snap version](https://snapcraft.io/t2sz/badge.svg)](https://snapcraft.io/t2sz)
 
 # t2sz
 It compresses a file into a seekable [zstd](https://github.com/facebook/zstd) splitting the file into multiple frames.
@@ -169,6 +170,14 @@ Download the latest stable source code or .deb from the [release page](https://g
 
 Check out [t2sz](https://aur.archlinux.org/packages/t2sz/) on AUR or `pamac build t2sz`
 
+### Homebrew
+
+On Linux and macOS you can install with [Homebrew](https://brew.sh/):
+
+```bash
+brew install t2sz
+```
+
 ### Snap
 
 For your convenience you can install the latest release from the [snap store](https://snapcraft.io/t2sz) but beware that it is distributed in strict mode and it can access only your home directory by default.
@@ -178,15 +187,6 @@ You can add access to removable devices such as those stored in `/media` with `s
 If you want to give it access to every file you can install it with `--devmode`.
 
 [![Get it from the Snap Store](https://snapcraft.io/static/images/badges/en/snap-store-black.svg)](https://snapcraft.io/t2sz)
-
-### Homebrew
-
-On Linux and macOS you can install with [Homebrew](https://brew.sh/):
-
-```bash
-brew tap martinellimarco/t2sz
-brew install t2sz
-```
 
 ## Testing
 
