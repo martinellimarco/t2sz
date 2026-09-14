@@ -203,3 +203,5 @@ The project includes [libFuzzer](https://llvm.org/docs/LibFuzzer.html) harnesses
 for fuzz-testing the tar header parser and the streaming compression paths.
 
 See [FUZZING.md](FUZZING.md) for build instructions and usage.
+
+.
