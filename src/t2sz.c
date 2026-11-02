@@ -776,22 +776,45 @@ static void readExactStdin(uint8_t *dst, const size_t n){
 }
 
 /**
- * Begin a new zstd frame with unknown pledged size.
+ * Begin a new zstd frame.
  *
- * Resets the session, sets pledged to unknown, and zeroes the
- * running byte counters for the frame being built.
+ * Resets the session, pledges @p size, and zeroes the running byte
+ * counters for the frame being built.
  *
  * @param ctx        The compression context.
+ * @param size       Exact size of the frame, or ZSTD_CONTENTSIZE_UNKNOWN.
  * @param frameIn    [out] Reset to 0 (decompressed bytes in frame).
  * @param frameOut   [out] Reset to 0 (compressed bytes in frame).
  * @param frameOpen  [out] Set to true.
  */
-static void startFrameUnknown(const Context *ctx, uint64_t *frameIn, uint64_t *frameOut, bool *frameOpen){
+static void startFrame(const Context *ctx, const unsigned long long size, uint64_t *frameIn, uint64_t *frameOut, bool *frameOpen){
     zstdResetFrame(ctx);
-    zstdSetPledged(ctx, 0, false); // unknown size
+    zstdSetPledged(ctx, size, size != ZSTD_CONTENTSIZE_UNKNOWN);
     *frameIn = 0;
     *frameOut = 0;
     *frameOpen = true;
+}
+
+/**
+ * Open the frame of a tar element (a header with its padded payload, or a
+ * null block) of @p size bytes, pledging its size.
+ *
+ * Without -s a frame never spans two elements, so a frame that opens with
+ * an element holds exactly that element, or with -S its first part. With
+ * -s, or when a frame is already open, does nothing: pushBytesTar() opens
+ * frames of unknown size as needed.
+ *
+ * @param ctx        The compression context.
+ * @param size       Size of the element in bytes.
+ * @param frameIn    [out] See startFrame().
+ * @param frameOut   [out] See startFrame().
+ * @param frameOpen  [in/out] Whether a frame is currently open.
+ */
+static void startElementFrame(const Context *ctx, const uint64_t size, uint64_t *frameIn, uint64_t *frameOut, bool *frameOpen){
+    if(ctx->minBlockSize || *frameOpen){
+        return;
+    }
+    startFrame(ctx, ctx->maxBlockSize && size > ctx->maxBlockSize ? ctx->maxBlockSize : size, frameIn, frameOut, frameOpen);
 }
 
 /**
@@ -837,7 +860,7 @@ static void pushBytesTar(Context *ctx, const uint8_t *src, const size_t n, uint6
     size_t off = 0;
     while(off < n){
         if(!*frameOpen){
-            startFrameUnknown(ctx, frameIn, frameOut, frameOpen);
+            startFrame(ctx, ZSTD_CONTENTSIZE_UNKNOWN, frameIn, frameOut, frameOpen);
         }
 
         // If maxBlockSize is set, never exceed it.
@@ -930,6 +953,7 @@ static void compressStdinTar(Context *ctx){
 
         // Null block (end-of-archive marker): push into stream and continue.
         if(isZeroTarBlock(hdrBlock)){
+            startElementFrame(ctx, 512, &frameIn, &frameOut, &frameOpen);
             pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
 
             if(ctx->verbose){
@@ -952,9 +976,6 @@ static void compressStdinTar(Context *ctx){
             exit(EXIT_FAILURE);
         }
 
-        // Header is valid — include the 512-byte block in the stream.
-        pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
-
         const size_t fileSize = parseTarSize(header);
         if(fileSize > SIZE_MAX - 1024){
             fprintf(stderr, "ERROR: Invalid tar entry size (too large)\n");
@@ -966,6 +987,13 @@ static void compressStdinTar(Context *ctx){
         size_t padded = fileSize;
         const size_t mod = padded % 512;
         if(mod) padded = padded - mod + 512;
+
+        // Header is valid — include the 512-byte block in the stream. An
+        // extended header shares the frame of the next entry: no known size.
+        if(!isExtensionHeader(header)){
+            startElementFrame(ctx, 512 + (uint64_t)padded, &frameIn, &frameOut, &frameOpen);
+        }
+        pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
 
         if(ctx->verbose){
             fprintf(stderr, "+ %.100s (%zu)\n", header->name, padded);
