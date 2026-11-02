@@ -142,6 +142,7 @@ add_error_test(err_corrupt_tar       corrupt_tar)
 
 # ── Auto raw-mode detection — strEndsWith() branch in main() ─────────────────
 add_error_test(err_auto_raw          auto_raw)
+add_error_test(err_tar_suffixes      tar_suffixes)
 
 # ── Default output filename — getOutFilename() called when -o is omitted ──────
 add_error_test(err_auto_outname      auto_outname)

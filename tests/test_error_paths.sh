@@ -274,6 +274,23 @@ auto_raw)
     log_pass "$TEST_NAME"
     ;;
 
+tar_suffixes)
+    # Tar mode is chosen by a case-sensitive ".tar" suffix: ARCHIVE.TAR,
+    # common on Windows, and .gtar, GNU tar's own extension, are compressed
+    # in raw mode.
+    make_small_tar "$WORK/input.tar"
+    assert_exit 0  "$T2SZ" -o "$WORK/input.zst" -f "$WORK/input.tar"
+    a=$(seek_table_frames "$WORK/input.zst")
+    for name in ARCHIVE.TAR archive.gtar; do
+        cp "$WORK/input.tar" "$WORK/$name"
+        assert_exit 0  "$T2SZ" -o "$WORK/$name.zst" -f "$WORK/$name"
+        assert_roundtrip "$WORK/$name.zst" "$WORK/input.tar"
+        b=$(seek_table_frames "$WORK/$name.zst")
+        [ "$a" -eq "$b" ] || { log_fail "$TEST_NAME — $b frame(s) for $name, $a for input.tar"; exit 1; }
+    done
+    log_pass "$TEST_NAME"
+    ;;
+
 auto_outname)
     # Run t2sz without -o so that getOutFilename() is called to derive the
     # default output path by appending ".zst" to the input filename.
