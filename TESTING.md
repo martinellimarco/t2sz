@@ -124,7 +124,7 @@ bash ../tests/test_coverage.sh ../build_cov
 |---------------------|--------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
 | CLI validation      | `err_no_args`, `err_too_many_args`, `err_bad_level_*`, `err_bad_block_*`, `err_bad_threads`, `err_block_S_lt_s`, `err_help`, `err_version` | all `usage()` and argument-check branches                                                                                            |
 | strtol edge cases   | `err_bad_level_strtol`, `err_bad_block_s_strtol`, `err_bad_block_S_strtol`, `err_bad_threads_strtol`                                       | `endptr == optarg`, `*endptr != '\0'` (trailing garbage), `ERANGE`, negative values, `val > UINT32_MAX`                              |
-| Unknown option      | `err_unknown_option`                                                                                                                       | getopt `'?'` → `switch default` case → `usage("ERROR: Unknown option")` → exit 1                                                     |
+| Unknown option      | `err_unknown_option`                                                                                                                       | getopt `'?'` → `usage("ERROR: Unknown option")` → exit 1                                                                             |
 | File-system errors  | `err_file_not_found`, `err_output_bad_path`, `err_empty_file`, `err_mmap_tiny_tar`                                                         | `access()` failure, `fopen()` failure in `prepareOutput()`, zero-byte input file (`prepareInput()`), sub-512-byte file in tar mode   |
 | Overwrite prompt    | `err_overwrite_no`, `err_overwrite_yes`                                                                                                    | `scanf` branch: answer `n` (no overwrite) and `y` (overwrite)                                                                        |
 | Stdin overwrite     | `err_stdin_overwrite_no_force`, `err_stdin_overwrite_force`                                                                                | stdinMode + existing file: error without `-f`, success with `-f` (no `scanf` corruption)                                             |
@@ -163,7 +163,7 @@ reached without hardware or environment conditions outside normal test execution
 - **Big-endian path in `writeLE32`** — x86-64 and ARM64 are always little-endian.
 - **`prepareInput` I/O failures** — `open()` after a successful `access()` (TOCTOU race); `mmap()` failure requires OS-level fault injection.
 - **`prepareCctx` failures** — `ZSTD_createCCtx()` returning NULL requires memory exhaustion; parameter errors require a broken libzstd build.
-- **`compressFile` fatal paths** — "This is a bug" branch is structurally unreachable; `ZSTD_compressStream2` error requires a corrupt compression context.
+- **`compressFile` fatal paths** — a `ZSTD_compressStream2` error requires a corrupt compression context.
 - **`seekTableAdd` overflow guards** — triggered only by > 134 million frames or a single block > 2 GB.
 - **Multi-thread fallback** — requires libzstd built without `ZSTD_MULTITHREAD`.
 - **`malloc` failure paths** — `newContext()`, `getOutFilename()`, `prepareOutput()`, `compressStdinRaw()`, `compressStdinTar()` all have OOM guards that require memory exhaustion.

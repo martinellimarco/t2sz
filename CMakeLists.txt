@@ -61,7 +61,7 @@ if(NOT ZSTD_LIB OR NOT ZSTD_INC)
 endif()
 
 target_include_directories(t2sz PRIVATE ${ZSTD_INC})
-target_link_libraries(t2sz ${ZSTD_LIB} m)
+target_link_libraries(t2sz ${ZSTD_LIB})
 
 if (CMAKE_BUILD_TYPE STREQUAL Release)
     add_custom_command(TARGET t2sz POST_BUILD COMMAND ${CMAKE_STRIP} $<TARGET_FILE:t2sz>)
