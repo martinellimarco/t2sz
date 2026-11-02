@@ -118,6 +118,7 @@ bash ../tests/test_coverage.sh ../build_cov
 | Stdin streaming errors     | `err_stdin_corrupt_tar`, `err_stdin_empty_tar`, `err_stdin_truncated_tar`, `err_stdin_truncated_payload` | `isTarHeader()` failure via stdin, `isZeroTarBlock()` zero-block handling, truncated header (`r != 512`), `readExactStdin()` EOF on truncated payload |
 | Stdout from file           | `err_stdout_tar_file`                                                                                    | mmap path with `-o -` (stdout output from file input, tar mode)                                                                                       |
 | Explicit `-o -` + stdin    | `err_stdin_explicit_stdout_raw`, `err_stdin_explicit_stdout_tar`                                         | stdoutMode set via explicit `-o -` when input is also stdin, raw and tar modes                                                                        |
+| Pipe input                 | `err_fifo_input`                                                                                         | a FIFO and `<(...)` streamed by `prepareInput()` (raw mode from the name), and `t2sz - < fifo` framed like the file                                   |
 
 ### CLI validation and error paths
 
