@@ -144,9 +144,10 @@ Options:
                            -S can be used together with -s but MUST be greater or equal to its value.
                            If -S and -s are equal the input block will be of exactly that size, if there is enough input data.
                            Like -s SIZE may be followed by one of the multiplicative suffixes described above.
-        -T [1..N]          Number of thread to spawn. It improves compression speed but cost more memory. Default is single thread.
-                           It requires libzstd >= 1.5.0 or an older version compiler with ZSTD_MULTITHREAD.
-                           If `-s` or `-S` are too small it is possible that a lower number of threads will be used.
+        -T [1..N]          Number of threads to spawn. Default is single thread. The threads share the work of one frame:
+                           they speed up large frames (a large -s or -S, or raw mode) at the cost of more memory,
+                           but not small ones, such as the frames of small files in tar mode without -s.
+                           It requires libzstd >= 1.5.0 or an older version compiled with ZSTD_MULTITHREAD.
         -r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special handling.
         -j                 Do not generate a seek table.
         -v                 Verbose. List the elements in the tar archive and their size.
