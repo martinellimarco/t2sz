@@ -1396,6 +1396,31 @@ size_t decodeMultiplier(const char *suffix){
 }
 
 /**
+ * Parse the SIZE of -s or -S: a positive decimal number, optionally
+ * followed by one of the suffixes of decodeMultiplier(). Calls usage()
+ * on anything else, or on a size that does not fit in a size_t.
+ *
+ * It uses strtoull(), not strtol(): where long is 32 bits (Windows, 32-bit
+ * systems) strtol() fails on a size of 2 GiB or more written in bytes.
+ *
+ * @param executable  The executable name, for usage().
+ * @param arg         The option argument.
+ * @return            The size in bytes.
+ */
+static size_t parseBlockSize(const char *executable, const char *arg){
+    char *endptr;
+    errno = 0;
+    const unsigned long long val = strtoull(arg, &endptr, 10);
+    const size_t multiplier = decodeMultiplier(endptr);
+    // strtoull() also takes leading spaces and a sign: require a digit first.
+    if(arg[0] < '0' || arg[0] > '9' || errno == ERANGE || val < 1 ||
+       (*endptr != '\0' && multiplier == 1) || val > SIZE_MAX / multiplier){
+        usage(executable, "ERROR: Invalid block size");
+    }
+    return (size_t)val * multiplier;
+}
+
+/**
  * Parse command-line options and populate the Context.
  *
  * Processes all getopt flags, validates argument counts and mutual
@@ -1429,40 +1454,12 @@ static void parseArgs(int argc, char **argv, Context *ctx, bool *overwrite){
             case 'o':
                 ctx->outFilename = optarg;
                 break;
-            case 's': {
-                char *endptr;
-                errno = 0;
-                const long val = strtol(optarg, &endptr, 10);
-                if(endptr == optarg || errno == ERANGE || val < 1){
-                    usage(executable, "ERROR: Invalid block size");
-                }
-                const size_t multiplier = decodeMultiplier(endptr);
-                if(*endptr != '\0' && multiplier == 1){
-                    usage(executable, "ERROR: Invalid block size");
-                }
-                if((size_t)val > SIZE_MAX / multiplier){
-                    usage(executable, "ERROR: Invalid block size");
-                }
-                ctx->minBlockSize = (size_t)val * multiplier;
+            case 's':
+                ctx->minBlockSize = parseBlockSize(executable, optarg);
                 break;
-            }
-            case 'S': {
-                char *endptr;
-                errno = 0;
-                const long val = strtol(optarg, &endptr, 10);
-                if(endptr == optarg || errno == ERANGE || val < 1){
-                    usage(executable, "ERROR: Invalid block size");
-                }
-                const size_t multiplier = decodeMultiplier(endptr);
-                if(*endptr != '\0' && multiplier == 1){
-                    usage(executable, "ERROR: Invalid block size");
-                }
-                if((size_t)val > SIZE_MAX / multiplier){
-                    usage(executable, "ERROR: Invalid block size");
-                }
-                ctx->maxBlockSize = (size_t)val * multiplier;
+            case 'S':
+                ctx->maxBlockSize = parseBlockSize(executable, optarg);
                 break;
-            }
             case 'T': {
                 char *endptr;
                 errno = 0;

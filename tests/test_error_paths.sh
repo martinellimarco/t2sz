@@ -820,6 +820,18 @@ garbage_suffix)
     log_pass "$TEST_NAME"
     ;;
 
+block_size_bytes_over_2gib)
+    # -s and -S read their number with strtol(): where long is 32 bits
+    # (Windows, 32-bit Linux) 3221225472 overflows, although 3G, the same
+    # size, is accepted.
+    make_small_dat "$WORK/in.dat"
+    make_small_tar "$WORK/in.tar" || { log_fail "$TEST_NAME — tar creation failed"; exit 1; }
+    assert_exit 0  "$T2SZ" -r -f -s 3G -o "$WORK/suffix.zst" "$WORK/in.dat"
+    assert_exit 0  "$T2SZ" -r -f -s 3221225472 -o "$WORK/bytes.zst" "$WORK/in.dat"
+    assert_exit 0  "$T2SZ" -f -S 3221225472 -o "$WORK/tar.zst" "$WORK/in.tar"
+    log_pass "$TEST_NAME"
+    ;;
+
 *)
     log_fail "unknown test name '$TEST_NAME'"
     exit 1
