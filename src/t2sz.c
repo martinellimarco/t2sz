@@ -1306,7 +1306,8 @@ void usage(const char *name, const char *str){
             "Options:\n"
             "\t-l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 3.\n"
             "\t-o FILENAME        Output file name. Use '-' to write to standard output.\n"
-            "\t                   When reading from stdin ('-') and -o is omitted, output defaults to stdout.\n"
+            "\t                   When reading from stdin ('-') and -o is omitted, output defaults to stdout,\n"
+            "\t                   unless stdout is a terminal.\n"
             "\t-s SIZE            In raw mode: the exact size of each input block, except the last one.\n"
             "\t                   In tar mode: the minimum size of an input block, in bytes.\n"
             "\t                                A block is composed by one or more whole files.\n"
@@ -1585,7 +1586,13 @@ int main(int argc, char **argv){
     char *outFilenameToFree = NULL;
     if(ctx->outFilename == NULL){
         if(ctx->stdinMode){
-            // stdin input with no explicit -o: write to stdout.
+            // stdin input with no explicit -o: write to stdout, unless it is
+            // a terminal, where compressed bytes are of no use (-o - forces it).
+            if(isTerminal(STDOUT_FILENO)){
+                fprintf(stderr, "ERROR: stdout is a terminal. Redirect it, or use -o - to write there anyway.\n");
+                free(ctx);
+                return EXIT_FAILURE;
+            }
             ctx->stdoutMode = true;
         }else{
             outFilenameToFree = ctx->outFilename = getOutFilename(ctx->inFilename);

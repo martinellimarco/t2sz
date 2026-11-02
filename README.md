@@ -121,7 +121,8 @@ Examples:
 Options:
         -l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 3.
         -o FILENAME        Output file name. Use '-' to write to standard output.
-                           When reading from stdin ('-') and -o is omitted, output defaults to stdout.
+                           When reading from stdin ('-') and -o is omitted, output defaults to stdout,
+                           unless stdout is a terminal.
         -s SIZE            In raw mode: the exact size of each input block, except the last one.
                            In tar mode: the minimum size of an input block, in bytes.
                                         A block is composed by one or more whole files.

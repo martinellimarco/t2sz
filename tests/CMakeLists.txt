@@ -164,6 +164,7 @@ add_error_test(err_stdin_empty_tar_mode  stdin_empty_tar_mode)
 add_error_test(err_mmap_tiny_tar         mmap_tiny_tar)
 add_error_test(err_stdin_default_stdout  stdin_default_stdout)
 add_error_test(err_stdin_file_stdout    stdin_file_stdout)
+add_error_test(err_stdout_terminal      stdout_terminal)
 
 # ── Stdin + raw mode with flags ──────────────────────────────────────────────
 add_roundtrip_test(stdin_raw_s256k        stdin  33  1048576    1   raw_to_file  -s  256k)
