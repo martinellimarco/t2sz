@@ -351,6 +351,28 @@ stdin_default_stdout)
     log_pass "$TEST_NAME"
     ;;
 
+closed_stderr)
+    # With stderr closed the output file gets descriptor 2, so every
+    # message (here the -v listing) is written into the archive.
+    make_small_tar "$WORK/input.tar"
+    RC=0
+    "$T2SZ" -v -f -o "$WORK/mmap.zst" "$WORK/input.tar" 2>&- || RC=$?
+    [ "$RC" -eq 0 ] || { log_fail "$TEST_NAME — mmap path exited $RC"; exit 1; }
+    assert_roundtrip "$WORK/mmap.zst" "$WORK/input.tar"
+    RC=0
+    "$T2SZ" -v -f -o "$WORK/stdin.zst" - < "$WORK/input.tar" 2>&- || RC=$?
+    [ "$RC" -eq 0 ] || { log_fail "$TEST_NAME — stdin path exited $RC"; exit 1; }
+    assert_roundtrip "$WORK/stdin.zst" "$WORK/input.tar"
+    # Only stderr may be filled in: a closed stdin is no empty input. (A
+    # Windows program started with stdin closed gets the NUL device.)
+    if ! is_windows; then
+        run "$T2SZ" -r -f -o "$WORK/closed.zst" - <&-
+        [ "$RC" -ne 0 ] || { log_fail "$TEST_NAME — closed stdin compressed as an empty input, exit 0"; exit 1; }
+        assert_rc 1
+    fi
+    log_pass "$TEST_NAME"
+    ;;
+
 stdin_file_stdout)
     # -o - with a regular file input must send compressed output to stdout.
     make_small_dat "$WORK/input.dat"
