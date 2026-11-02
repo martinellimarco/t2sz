@@ -4,7 +4,7 @@
 
 The `fuzz/` directory contains [libFuzzer](https://llvm.org/docs/LibFuzzer.html)
 harnesses for fuzz-testing t2sz. Fuzzing complements the deterministic test
-suite (78 tests) by exploring the vast space of possible inputs that manual
+suite by exploring the vast space of possible inputs that manual
 tests cannot cover.
 
 Three harnesses are provided:
@@ -12,8 +12,11 @@ Three harnesses are provided:
 | Harness          | Code path             | What it exercises                                                                                                                            |
 |------------------|-----------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
 | `fuzz_tar_mmap`  | mmap tar (file input) | `isTarHeader()`, `checksum()`, `parseTarSize()`, the `tarHeaderIdx` state machine in `compressFile()`, `maxBlockSize` / `residual` splitting |
-| `fuzz_tar_stdin` | stdin tar (streaming) | `compressStdinTar()`, `readExactStdin()`, `pushBytesTar()`, `isZeroTarBlock()`, truncated header/payload handling                            |
+| `fuzz_tar_stdin` | stdin tar (streaming) | `compressStdinTar()`, `compressStdinRaw()`, `readExactStdin()`, `pushBytesTar()`, `isZeroTarBlock()`, truncated header/payload handling      |
 | `fuzz_cli`       | CLI arg parsing       | `parseArgs()`, `decodeMultiplier()`, `strtol()` edge cases, getopt option handling, suffix validation, stdin/raw mode detection              |
+
+Both tar harnesses also run in raw mode and with `-s` and `-S`: the setting is
+picked from the number of 512-byte blocks of the input (`fuzz/fuzz_tar.h`).
 
 The two tar harnesses include a **checksum-aware custom mutator** that
 recalculates the tar header checksum after each mutation. Without it, the
@@ -119,7 +122,7 @@ When the fuzzer finds a crash, the recommended workflow is:
    file to t2sz and asserts the expected behavior (non-zero exit, no crash).
 4. Register the test in `tests/CMakeLists.txt` and update `TESTING.md`.
 5. Fix the bug in `src/t2sz.c`.
-6. Verify: the crash reproducer now passes, and all 78+ tests still pass.
+6. Verify: the crash reproducer now passes, and the whole test suite still passes.
 
 This ensures the bug never regresses.
 
