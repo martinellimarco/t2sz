@@ -6,7 +6,7 @@
  * 512-byte blocks in the input, so that every mode is fuzzed without
  * spending input bytes on it and without moving the tar headers that the
  * checksum-fixing mutator relies on. The sizes are not multiples of 512,
- * so frames also end inside tar blocks.
+ * so frames also end inside tar blocks. fuzzCheckRoundTrip() is the oracle.
  *
  * Include after t2sz.c (it uses Context).
  */
@@ -32,6 +32,17 @@ static void fuzzSetMode(Context *ctx, const size_t size){
     ctx->minBlockSize = FUZZ_MODES[m].minBlockSize;
     ctx->maxBlockSize = FUZZ_MODES[m].maxBlockSize;
     ctx->rawMode      = FUZZ_MODES[m].rawMode;
+}
+
+/* The oracle: abort unless the archive `out` decompresses to exactly `in`.
+ * A run that does not fail must not lose, add or change a byte; without
+ * this check such a bug goes unnoticed, as it does not crash. */
+static void fuzzCheckRoundTrip(const uint8_t *in, const size_t inLen, const void *out, const size_t outLen){
+    uint8_t *dec = malloc(inLen + 1); /* one byte more, to catch extra output */
+    if (!dec) abort();
+    const size_t n = ZSTD_decompress(dec, inLen + 1, out, outLen);
+    if (ZSTD_isError(n) || n != inLen || memcmp(dec, in, inLen) != 0) abort();
+    free(dec);
 }
 
 #endif /* FUZZ_TAR_H */

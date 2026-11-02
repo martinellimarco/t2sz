@@ -5,7 +5,8 @@
  *
  * Exercises compressFile() with a memory-mapped input buffer pointing
  * directly at the fuzzer's data, in tar and raw mode with the -s and -S
- * settings of fuzz_tar.h. Output is discarded to /dev/null.
+ * settings of fuzz_tar.h. The output, kept in memory, must decompress to
+ * the input whenever compressFile() returns.
  *
  * A custom mutator recalculates tar header checksums after each mutation,
  * allowing the fuzzer to efficiently explore code paths past the checksum
@@ -114,13 +115,13 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         close(devnull_err);
     }
 
-    /* Redirect stdout to /dev/null so compressed output is discarded. */
-    int saved_stdout = dup(STDOUT_FILENO);
-    int devnull = open("/dev/null", O_WRONLY);
-    if (devnull >= 0) {
-        dup2(devnull, STDOUT_FILENO);
-        close(devnull);
-    }
+    /* Collect the compressed output in memory, written through stdout. */
+    char *out = NULL;
+    size_t outLen = 0;
+    FILE *outMem = open_memstream(&out, &outLen);
+    if (!outMem) abort();
+    FILE *saved_stdout = stdout;
+    stdout = outMem;
 
     /* Run the full mmap tar compression pipeline.
      * fuzz_active is set BEFORE newContext() so that even an OOM inside
@@ -150,20 +151,20 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     }
     fuzz_active = 0;
 
-    /* Flush stdio buffers BEFORE restoring fds to the terminal so that
-     * any compressed bytes buffered by a longjmp-interrupted write go to
-     * /dev/null, not the user's console. */
-    fflush(stdout);
+    /* Flush stderr BEFORE restoring its fd to the terminal so that messages
+     * buffered by a longjmp-interrupted run go to /dev/null. */
     fflush(stderr);
-
-    if (saved_stdout >= 0) {
-        dup2(saved_stdout, STDOUT_FILENO);
-        close(saved_stdout);
-    }
     if (saved_stderr >= 0) {
         dup2(saved_stderr, STDERR_FILENO);
         close(saved_stderr);
     }
+
+    /* After a run that did not fail, with stderr back for the crash report. */
+    if (jumped == 0)
+        fuzzCheckRoundTrip(data, size, out, outLen);
+    stdout = saved_stdout;
+    fclose(outMem);
+    free(out);
 
     /* Cleanup — must handle partial state from interrupted exit().
      * ctx may be NULL if newContext() triggered longjmp. */
@@ -171,7 +172,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         if (ctx->cctx)    ZSTD_freeCCtx(ctx->cctx);
         if (ctx->outBuff) free(ctx->outBuff);
         if (ctx->seekTable) free(ctx->seekTable);
-        if (ctx->outFile && ctx->outFile != stdout) fclose(ctx->outFile);
         free(ctx);
     }
 
