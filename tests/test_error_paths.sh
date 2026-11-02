@@ -393,6 +393,37 @@ stdin_empty_tar)
     log_pass "$TEST_NAME — exited $RC (no crash)"
     ;;
 
+pax_header_own_frame)
+    # A pax extended header ('x') or a GNU long name ('L') describes the
+    # entry after it, but t2sz put it in a frame of its own: the frame of
+    # the file lacked its real name.
+    longname=$(printf 'n%.0s' {1..150})
+    mkdir -p "$WORK/src"
+    printf 'T2SZ-PAYLOAD\n' > "$WORK/src/$longname"
+    for fmt in pax gnu; do
+        flags="--format=$fmt"
+        if ! tar --version 2>/dev/null | grep -q 'GNU tar'; then
+            [ "$fmt" = gnu ] && flags="--format=gnutar"    # bsdtar
+        fi
+        COPYFILE_DISABLE=1 tar $flags -cf "$WORK/input.tar" -C "$WORK/src" "$longname" || {
+            log_fail "$TEST_NAME — tar creation failed ($flags)"
+            exit 1
+        }
+        assert_exit 0  "$T2SZ" -o "$WORK/file.zst" -f "$WORK/input.tar"
+        assert_exit 0  "$T2SZ" -o "$WORK/stdin.zst" -f - < "$WORK/input.tar"
+        for src in file stdin; do
+            assert_roundtrip "$WORK/$src.zst" "$WORK/input.tar"
+            c0=$(seek_table_entry "$WORK/$src.zst" 0 0)
+            head -c "$c0" "$WORK/$src.zst" | zstd -d -c -q > "$WORK/frame0.bin" 2>/dev/null
+            grep -q T2SZ-PAYLOAD "$WORK/frame0.bin" || {
+                log_fail "$TEST_NAME — $fmt, $src: frame 0 holds only the header before the file ($(wc -c < "$WORK/frame0.bin" | tr -d ' ') bytes)"
+                exit 1
+            }
+        done
+    done
+    log_pass "$TEST_NAME"
+    ;;
+
 stdin_truncated_tar)
     # Partial 512-byte header on stdin → "Truncated tar header" error.
     # Send exactly 256 zero bytes: fread returns 256, r != 512 triggers the error.

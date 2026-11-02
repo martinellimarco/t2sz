@@ -121,6 +121,18 @@ static size_t parseTarSize(const TarHeader *header){
     return (size_t)strtoul(buf, NULL, 8);
 }
 
+/**
+ * Test whether a tar header only describes the entry that follows it:
+ * a pax extended header ('x') or a GNU long name or long link name ('L',
+ * 'K'). Such a header belongs in the frame of that entry.
+ *
+ * @param header  Pointer to a valid tar header.
+ * @return        true for an extended header.
+ */
+static bool isExtensionHeader(const TarHeader *header){
+    return header->typeflag == 'x' || header->typeflag == 'L' || header->typeflag == 'K';
+}
+
 typedef struct {
     uint32_t compressedSize;
     uint32_t decompressedSize;
@@ -969,6 +981,11 @@ static void compressStdinTar(Context *ctx){
             remaining -= take;
         }
 
+        // An extended header stays in the frame of the entry it describes.
+        if(isExtensionHeader(header)){
+            continue;
+        }
+
         // End-of-file boundary: decide whether to close frame
         if(ctx->minBlockSize == 0){
             // one file per frame
@@ -1082,6 +1099,7 @@ void compressFile(Context *ctx){
 
         size_t tarHeaderIdx = 0;
         uint8_t* readBuff = ctx->inBuff;
+        bool extHeader = false; // the last header parsed describes the next entry
 
         bool lastChunk = false;
         size_t residual = 0;
@@ -1151,6 +1169,7 @@ void compressFile(Context *ctx){
 
                             tarHeaderIdx += toNextHeader;
                             blockSize += toNextHeader;
+                            extHeader = isExtensionHeader(header);
 
                             if(ctx->verbose){
                                 fprintf(stderr, "+ %.100s (%zu)\n", header->name, size);
@@ -1165,6 +1184,7 @@ void compressFile(Context *ctx){
                         }
                         tarHeaderIdx+=512;
                         blockSize += 512;
+                        extHeader = false;
                     }
                     // -S applies to null blocks too, not only to entries.
                     if(ctx->maxBlockSize && blockSize > ctx->maxBlockSize){
@@ -1172,7 +1192,9 @@ void compressFile(Context *ctx){
                         blockSize = ctx->maxBlockSize;
                     }
                     lastChunk = tarHeaderIdx >= ctx->inBuffSize;
-                }while(blockSize < ctx->minBlockSize && !lastChunk);
+                    // Go on below -s, and after an extended header, which stays in
+                    // the block of the entry it describes (unless -S split the block).
+                }while(!lastChunk && !residual && (blockSize < ctx->minBlockSize || extHeader));
             }
 
             zstdResetFrame(ctx);

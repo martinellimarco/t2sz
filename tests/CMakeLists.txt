@@ -182,6 +182,7 @@ add_roundtrip_test(stdin_tar_to_stdout    stdin  41  1048576    1   tar_to_stdou
 # ── Stdin streaming error paths ──────────────────────────────────────────────
 add_error_test(err_stdin_corrupt_tar       stdin_corrupt_tar)
 add_error_test(err_stdin_empty_tar         stdin_empty_tar)
+add_error_test(err_pax_header_own_frame    pax_header_own_frame)
 add_error_test(err_stdin_truncated_tar     stdin_truncated_tar)
 add_error_test(err_partial_tail_block      partial_tail_block)
 add_error_test(err_stdin_truncated_payload stdin_truncated_payload)
