@@ -108,9 +108,14 @@ bool isTarHeader(const TarHeader* header){
 }
 
 /**
- * Safely parse the octal size field from a tar header.
+ * Safely parse the size field from a tar header.
  *
- * The size field is a fixed 12-byte array that is not guaranteed to be
+ * A size of 8 GiB or more does not fit in 11 octal digits: GNU tar and
+ * bsdtar then store it in base-256, a big-endian binary number flagged by
+ * the top bit of the first byte. A negative or wider than 64-bit value is
+ * returned as UINT64_MAX, which every caller rejects as too large.
+ *
+ * The octal size field is a fixed 12-byte array that is not guaranteed to be
  * NUL-terminated for malformed inputs. This function copies it into a
  * local buffer and NUL-terminates before calling strtoull, matching the
  * defensive pattern already used in isTarHeader() for the checksum field.
@@ -121,6 +126,18 @@ bool isTarHeader(const TarHeader* header){
  * @return        Parsed file size in bytes.
  */
 static uint64_t parseTarSize(const TarHeader *header){
+    const uint8_t *field = (const uint8_t*)header->size;
+    if(field[0] & 0x80){
+        if(field[0] != 0x80 || field[1] || field[2] || field[3]){
+            return UINT64_MAX;
+        }
+        uint64_t size = 0;
+        for(size_t i = 4; i < 12; i++){
+            size = size << 8 | field[i];
+        }
+        return size;
+    }
+
     char buf[13];
     memcpy(buf, header->size, 12);
     buf[12] = '\0';

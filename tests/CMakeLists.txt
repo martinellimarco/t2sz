@@ -230,6 +230,8 @@ add_error_test(err_stdin_overwrite_force     stdin_overwrite_force)
 # ── Overflow guard for -s/-S multiplication ──────────────────────────────
 add_error_test(err_overflow_s               overflow_s)
 add_error_test(err_overflow_S               overflow_S)
+add_error_test(err_base256_size             base256_size)
+set_tests_properties(err_base256_size PROPERTIES TIMEOUT 900)
 
 # ── seekTableEnsureCap realloc growth (>1024 frames) ──────────────────────
 add_error_test(err_seektable_grow            seektable_grow)

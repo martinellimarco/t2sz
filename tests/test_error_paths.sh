@@ -892,6 +892,17 @@ overflow_S)
     log_pass "$TEST_NAME"
     ;;
 
+base256_size)
+    # A member of 8 GiB or more: GNU tar and bsdtar (gnu format) store its
+    # size in base-256, which parseTarSize() reads as octal.
+    check_disk_space "$BLOBS_DIR" 10 || { log_skip "$TEST_NAME — needs 10 GB free"; exit 77; }
+    make_big_member_tar gnu 8589934593 "$WORK/big.tar"
+    [ "$(read_byte "$WORK/big.tar" 124)" -eq 128 ] || { log_skip "$TEST_NAME — tar did not write a base-256 size"; exit 77; }
+    assert_exit 0  "$T2SZ" -S 1G -o "$WORK/out.zst" -f "$WORK/big.tar"
+    assert_roundtrip "$WORK/out.zst" "$WORK/big.tar"
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── seekTableEnsureCap realloc growth (>1024 frames) ──────────────────────
 
 seektable_grow)
