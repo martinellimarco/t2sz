@@ -1085,7 +1085,9 @@ void compressFile(Context *ctx){
 
         bool lastChunk = false;
         size_t residual = 0;
-        while(!lastChunk) {
+        // The parser may reach the end of the input while the tail of an
+        // entry split by -S (the residual) is still to be compressed.
+        while(!lastChunk || residual) {
             size_t blockSize = 0;
             if(ctx->rawMode){
                 if(ctx->minBlockSize){
