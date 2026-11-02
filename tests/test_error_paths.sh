@@ -84,6 +84,15 @@ make_small_dat() {
     printf '\x01\x02\x03\x04\x05\x06\x07\x08' > "$1"
 }
 
+# Assert that t2sz rejects the options "$@" with exit 1 and writes nothing.
+# It runs on an existing input, so that only the options can make it fail:
+# with a missing input it would fail even with the check under test removed.
+assert_rejected() {
+    make_small_dat "$WORK/valid.dat"
+    assert_exit 1  "$T2SZ" -f -o "$WORK/rejected.zst" "$@" "$WORK/valid.dat"
+    [ ! -e "$WORK/rejected.zst" ] || { log_fail "$TEST_NAME — output written although $* was rejected"; exit 1; }
+}
+
 # Assert that the zstd file $1 decompresses to exactly the bytes of $2.
 # Hashes rather than cmp: macOS cmp reads a pipe one byte at a time (35 MB/s).
 assert_roundtrip() {
@@ -142,43 +151,43 @@ no_args)
 
 too_many_args)
     # Two positional arguments: t2sz must print "Too many arguments" and exit 1.
-    assert_exit 1  "$T2SZ" file_a file_b
+    assert_rejected "$WORK/valid.dat"
     log_pass "$TEST_NAME"
     ;;
 
 bad_level_low)
     # -l 0 is below the valid range [1..22]: must print usage and exit 1.
-    assert_exit 1  "$T2SZ" -l 0 dummy
+    assert_rejected -l 0
     log_pass "$TEST_NAME"
     ;;
 
 bad_level_high)
     # -l 23 is above the valid range [1..22]: must print usage and exit 1.
-    assert_exit 1  "$T2SZ" -l 23 dummy
+    assert_rejected -l 23
     log_pass "$TEST_NAME"
     ;;
 
 bad_block_s)
     # -s 0 produces a zero minimum block size (0 < multiplier=1): exit 1.
-    assert_exit 1  "$T2SZ" -s 0 dummy
+    assert_rejected -s 0
     log_pass "$TEST_NAME"
     ;;
 
 bad_block_S)
     # -S 0 produces a zero maximum block size (0 < multiplier=1): exit 1.
-    assert_exit 1  "$T2SZ" -S 0 dummy
+    assert_rejected -S 0
     log_pass "$TEST_NAME"
     ;;
 
 bad_threads)
     # -T 0 is below the valid minimum of 1 thread: must print usage and exit 1.
-    assert_exit 1  "$T2SZ" -T 0 dummy
+    assert_rejected -T 0
     log_pass "$TEST_NAME"
     ;;
 
 block_S_lt_s)
     # Maximum block size (-S 1M) smaller than minimum (-s 2M): must exit 1.
-    assert_exit 1  "$T2SZ" -s 2M -S 1M dummy
+    assert_rejected -s 2M -S 1M
     log_pass "$TEST_NAME"
     ;;
 
@@ -287,23 +296,16 @@ auto_outname)
     ;;
 
 multiplier_suffixes)
-    # Exercise the metric-prefix branches of decodeMultiplier() that are not
-    # reached by the standard flag tests (which only use k/K and M/MiB).
-    #
-    #   GiB → 1024^3  (branch at the third else-if)
-    #   kB  → 1000    (fourth else-if)
-    #   KB  → 1000    (fourth else-if, same branch)
-    #   MB  → 1000^2  (fifth else-if)
-    #   GB  → 1000^3  (sixth else-if)
-    #
-    # A tiny 8-byte input is used so the actual block size is capped to the
-    # file size regardless of the large multiplier value.
+    # Each suffix of decodeMultiplier() stands for exactly its value: -s 1<suffix>
+    # is accepted with -S of that value, and rejected (-S smaller than -s) with
+    # one byte less. Covers every branch of decodeMultiplier().
     make_small_dat "$WORK/input.dat"
-    assert_exit 0  "$T2SZ" -r -s 1GiB -o "$WORK/out_gib.zst" -f "$WORK/input.dat"
-    assert_exit 0  "$T2SZ" -r -s 1kB  -o "$WORK/out_kb.zst"  -f "$WORK/input.dat"
-    assert_exit 0  "$T2SZ" -r -s 1KB  -o "$WORK/out_KB.zst"  -f "$WORK/input.dat"
-    assert_exit 0  "$T2SZ" -r -s 1MB  -o "$WORK/out_MB.zst"  -f "$WORK/input.dat"
-    assert_exit 0  "$T2SZ" -r -s 1GB  -o "$WORK/out_GB.zst"  -f "$WORK/input.dat"
+    for pair in k:1024 K:1024 KiB:1024 kB:1000 KB:1000 M:1048576 MiB:1048576 MB:1000000 \
+                G:1073741824 GiB:1073741824 GB:1000000000; do
+        suffix=${pair%%:*} value=${pair#*:}
+        assert_exit 0  "$T2SZ" -r -s "1$suffix" -S "$value" -o "$WORK/out.zst" -f "$WORK/input.dat"
+        assert_rejected -s "1$suffix" -S $(( value - 1 ))
+    done
     log_pass "$TEST_NAME"
     ;;
 
@@ -629,10 +631,10 @@ bad_level_strtol)
     # Exercises strtol() edge cases in -l argument parsing:
     #   endptr == optarg (non-numeric), *endptr != '\0' (trailing garbage),
     #   ERANGE (overflow beyond LONG_MAX), negative value.
-    assert_exit 1  "$T2SZ" -l abc dummy
-    assert_exit 1  "$T2SZ" -l 3abc dummy
-    assert_exit 1  "$T2SZ" -l 99999999999999999999 dummy
-    assert_exit 1  "$T2SZ" -l -1 dummy
+    assert_rejected -l abc
+    assert_rejected -l 3abc
+    assert_rejected -l 99999999999999999999
+    assert_rejected -l -1
     log_pass "$TEST_NAME"
     ;;
 
@@ -640,10 +642,10 @@ bad_block_s_strtol)
     # Exercises strtol() edge cases in -s argument parsing:
     #   endptr == optarg (non-numeric), trailing garbage (unrecognized suffix),
     #   ERANGE (overflow), negative value.
-    assert_exit 1  "$T2SZ" -s abc dummy
-    assert_exit 1  "$T2SZ" -s 2abc dummy
-    assert_exit 1  "$T2SZ" -s 99999999999999999999 dummy
-    assert_exit 1  "$T2SZ" -s -1 dummy
+    assert_rejected -s abc
+    assert_rejected -s 2abc
+    assert_rejected -s 99999999999999999999
+    assert_rejected -s -1
     log_pass "$TEST_NAME"
     ;;
 
@@ -651,10 +653,10 @@ bad_block_S_strtol)
     # Exercises strtol() edge cases in -S argument parsing:
     #   endptr == optarg (non-numeric), trailing garbage (unrecognized suffix),
     #   ERANGE (overflow), negative value.
-    assert_exit 1  "$T2SZ" -S abc dummy
-    assert_exit 1  "$T2SZ" -S 2abc dummy
-    assert_exit 1  "$T2SZ" -S 99999999999999999999 dummy
-    assert_exit 1  "$T2SZ" -S -1 dummy
+    assert_rejected -S abc
+    assert_rejected -S 2abc
+    assert_rejected -S 99999999999999999999
+    assert_rejected -S -1
     log_pass "$TEST_NAME"
     ;;
 
@@ -662,11 +664,11 @@ bad_threads_strtol)
     # Exercises strtol() edge cases in -T argument parsing:
     #   endptr == optarg (non-numeric), *endptr != '\0' (trailing garbage),
     #   ERANGE (overflow beyond LONG_MAX), val > UINT32_MAX, negative value.
-    assert_exit 1  "$T2SZ" -T abc dummy
-    assert_exit 1  "$T2SZ" -T 2abc dummy
-    assert_exit 1  "$T2SZ" -T 99999999999999999999 dummy
-    assert_exit 1  "$T2SZ" -T 4294967296 dummy
-    assert_exit 1  "$T2SZ" -T -1 dummy
+    assert_rejected -T abc
+    assert_rejected -T 2abc
+    assert_rejected -T 99999999999999999999
+    assert_rejected -T 4294967296
+    assert_rejected -T -1
     log_pass "$TEST_NAME"
     ;;
 
@@ -675,7 +677,7 @@ bad_threads_strtol)
 unknown_option)
     # Unrecognized option -Z triggers getopt '?' → switch default case.
     # usage(executable, "ERROR: Unknown option") exits with EXIT_FAILURE (1).
-    assert_exit 1  "$T2SZ" -Z dummy 2>/dev/null
+    assert_rejected -Z
     log_pass "$TEST_NAME"
     ;;
 
@@ -765,13 +767,13 @@ overflow_s)
     # A huge numeric value with a large suffix triggers the overflow guard
     # in case 's': (size_t)val > SIZE_MAX / multiplier → exit 1.
     # 999999999999 × GiB (1024³) exceeds SIZE_MAX on 64-bit.
-    assert_exit 1  "$T2SZ" -s 999999999999GiB dummy
+    assert_rejected -s 999999999999GiB
     log_pass "$TEST_NAME"
     ;;
 
 overflow_S)
     # Same overflow guard for case 'S' (maxBlockSize).
-    assert_exit 1  "$T2SZ" -S 999999999999GiB dummy
+    assert_rejected -S 999999999999GiB
     log_pass "$TEST_NAME"
     ;;
 
@@ -806,12 +808,12 @@ garbage_suffix)
     # numeric value and a valid suffix (e.g. "1xyzGiB") must be rejected.
     # Before the fix, strEndsWith() would match the trailing "GiB" and
     # silently accept the argument.
-    assert_exit 1  "$T2SZ" -s 1xyzGiB dummy
-    assert_exit 1  "$T2SZ" -S 1xyzGiB dummy
-    assert_exit 1  "$T2SZ" -s 10fooM dummy
-    assert_exit 1  "$T2SZ" -S 10fooM dummy
-    assert_exit 1  "$T2SZ" -s 5barKiB dummy
-    assert_exit 1  "$T2SZ" -S 5barKiB dummy
+    assert_rejected -s 1xyzGiB
+    assert_rejected -S 1xyzGiB
+    assert_rejected -s 10fooM
+    assert_rejected -S 10fooM
+    assert_rejected -s 5barKiB
+    assert_rejected -S 5barKiB
     # Valid suffixes must still be accepted (file not found, not block-size error)
     make_small_dat "$WORK/input.dat"
     assert_exit 0  "$T2SZ" -r -s 1GiB -o "$WORK/out1.zst" -f "$WORK/input.dat"
