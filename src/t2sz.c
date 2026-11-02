@@ -1009,12 +1009,10 @@ static void compressStdinTar(Context *ctx){
     // - if minBlockSize>0: aggregate whole files until >= min, then close at file boundary
     // - if maxBlockSize>0: split so frames never exceed max (may split inside a file)
 
-    const size_t inChunk = ZSTD_CStreamInSize();
-    uint8_t *chunkBuf = malloc(inChunk);
-    if(!chunkBuf){
-        fprintf(stderr, "ERROR: Out of memory allocating tar stdin chunk buffer\n");
-        exit(EXIT_FAILURE);
-    }
+    // On the stack rather than from malloc(): it is freed on every exit()
+    // path, which the fuzz harness turns into a longjmp.
+    uint8_t chunkBuf[128 * 1024]; // ZSTD_CStreamInSize(): one zstd block
+    const size_t inChunk = sizeof(chunkBuf);
 
     uint8_t hdrBlock[512];
 
@@ -1028,7 +1026,6 @@ static void compressStdinTar(Context *ctx){
         if(r == 0){
             if(ferror(stdin)){
                 fprintf(stderr, "ERROR: Read error on stdin\n");
-                free(chunkBuf);
                 exit(EXIT_FAILURE);
             }
             // EOF
@@ -1037,7 +1034,6 @@ static void compressStdinTar(Context *ctx){
         if(r != 512){
             // partial header => truncated stream
             fprintf(stderr, "ERROR: Truncated tar header on stdin\n");
-            free(chunkBuf);
             exit(EXIT_FAILURE);
         }
 
@@ -1062,14 +1058,12 @@ static void compressStdinTar(Context *ctx){
         TarHeader *header = (TarHeader*)hdrBlock;
         if(!isTarHeader(header)){
             fprintf(stderr, "ERROR: Invalid tar header. If this is not a tar archive use raw mode (-r)\n");
-            free(chunkBuf);
             exit(EXIT_FAILURE);
         }
 
         const uint64_t fileSize = tarEntrySize(header, &paxNextSize);
         if(fileSize > UINT64_MAX - 1024){
             fprintf(stderr, "ERROR: Invalid tar entry size (too large)\n");
-            free(chunkBuf);
             exit(EXIT_FAILURE);
         }
 
@@ -1136,11 +1130,8 @@ static void compressStdinTar(Context *ctx){
     if(ctx->seekTableLen == 0){
         fprintf(stderr, "ERROR: No tar entries found on stdin. "
                 "If this is not a tar archive use raw mode (-r)\n");
-        free(chunkBuf);
         exit(EXIT_FAILURE);
     }
-
-    free(chunkBuf);
 }
 
 /**

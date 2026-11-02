@@ -64,19 +64,19 @@ cmake --build build_fuzz --target fuzz_corpus
 
 # Run the mmap harness (most important target)
 cd build_fuzz/fuzz
-./fuzz_tar_mmap corpus_mmap/ -max_len=65536 -timeout=10 -detect_leaks=0
+./fuzz_tar_mmap corpus_mmap/ -max_len=65536 -timeout=10
 
 # Run the stdin harness
-./fuzz_tar_stdin corpus_stdin/ -max_len=65536 -timeout=10 -detect_leaks=0
+./fuzz_tar_stdin corpus_stdin/ -max_len=65536 -timeout=10
 
 # Run the CLI harness
-./fuzz_cli corpus_cli/ -max_len=4096 -timeout=5 -detect_leaks=0
+./fuzz_cli corpus_cli/ -max_len=4096 -timeout=5
 ```
 
 For multi-core fuzzing:
 
 ```bash
-./fuzz_tar_mmap corpus_mmap/ -max_len=65536 -timeout=10 -detect_leaks=0 -jobs=4 -workers=4
+./fuzz_tar_mmap corpus_mmap/ -max_len=65536 -timeout=10 -jobs=4 -workers=4
 ```
 
 ---
@@ -87,13 +87,8 @@ For multi-core fuzzing:
 |----------------------|-----------|----------------------------------------------------------------------------------------------|
 | `-max_len`           | `65536`   | 64 KiB is enough for multi-header tar archives; larger inputs waste cycles on compression    |
 | `-timeout`           | `10`      | Kills iterations that hang (e.g., a crafted size field causes excessive reads)               |
-| `-detect_leaks`      | `0`       | Disables LeakSanitizer; the `setjmp`/`longjmp` exit override inherently leaks on error paths |
 | `-rss_limit_mb`      | `4096`    | Caps RSS to 4 GiB; prevents OOM on inputs with huge tar size fields                          |
 | `-jobs` / `-workers` | CPU cores | Parallel fuzzing across multiple processes                                                   |
-
-> **Note**: on some platforms the `-detect_leaks=0` flag alone may not
-> suppress LSAN. If you still see leak reports, set the environment variable
-> explicitly: `ASAN_OPTIONS=detect_leaks=0 ./fuzz_tar_mmap ...`
 
 ---
 
@@ -158,9 +153,12 @@ The `setjmp`/`fuzz_active=1` sequence is set **before** `newContext()` so
 that even an OOM inside `newContext()` is caught by the longjmp recovery
 rather than terminating the process via `_exit()`.
 
-Resources leaked by the interrupted code path (e.g., `chunkBuf` inside
-`compressStdinTar`) are harmless — they are tiny and the fuzzer runs with
-`-detect_leaks=0`.
+An interrupted run must not leak: the harness frees what the context
+holds, compressStdinTar() keeps its buffers on the stack, and
+compressStdinRaw() frees its own before it exits on a read error (only a
+write or compression error, which output to /dev/null does not cause,
+would leave one behind). LeakSanitizer stays enabled, so a leak on an
+error path is reported.
 
 ### Why a custom mutator ?
 

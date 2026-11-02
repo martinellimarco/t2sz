@@ -37,8 +37,8 @@ extern size_t LLVMFuzzerMutate(uint8_t *data, size_t size, size_t max_size);
  * fuzz_active is false (e.g. libFuzzer shutdown), atexit handlers and
  * stdio buffers are flushed properly — preserving the summary report.
  *
- * Leaks from interrupted code paths are expected and harmless — run with
- * -detect_leaks=0 to suppress LSAN noise.
+ * An interrupted run leaks nothing (see FUZZING.md), so LeakSanitizer
+ * stays enabled.
  */
 static jmp_buf fuzz_jmp;
 static volatile int fuzz_active = 0;
