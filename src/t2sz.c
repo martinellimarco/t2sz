@@ -1335,7 +1335,8 @@ void usage(const char *name, const char *str){
             "\t-r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special handling.\n"
             "\t-j                 Do not generate a seek table.\n"
             "\t-v                 Verbose. List the elements in the tar archive and their size.\n"
-            "\t-f                 Overwrite output without prompting.\n"
+            "\t-f                 Overwrite output without prompting. Without it an existing output is replaced\n"
+            "\t                   only after a yes typed on a terminal.\n"
             "\t-h                 Print this help.\n"
             "\t-V                 Print the version.\n"
             "\n",
@@ -1356,6 +1357,24 @@ bool strEndsWith(const char * str, const char * suf){
     const size_t sufLen = strlen(suf);
 
     return (strLen >= sufLen) && (0 == strcmp(str + (strLen - sufLen), suf));
+}
+
+/**
+ * Test whether a file descriptor is a terminal.
+ *
+ * On Windows isatty() is true for any character device, the NUL device
+ * included, so a console is recognized by its console mode instead.
+ *
+ * @param fd  The file descriptor to inspect.
+ * @return    true if @p fd is a terminal (a console on Windows).
+ */
+bool isTerminal(const int fd){
+#ifdef _WIN32
+    DWORD mode;
+    return GetConsoleMode((HANDLE)_get_osfhandle(fd), &mode);
+#else
+    return isatty(fd);
+#endif
 }
 
 /**
@@ -1577,19 +1596,27 @@ int main(int argc, char **argv){
     }
 
     // Overwrite prompt — skipped when writing to stdout (nothing to overwrite).
-    // In stdinMode an interactive prompt would consume bytes from the input
-    // stream and corrupt the compressed output, so we require -f instead.
+    // The answer is read from stdin, so ask only when stdin is a terminal:
+    // a pipe or a file would answer with its own bytes (the input itself in
+    // stdinMode), and at end of file nothing would be written while the run
+    // exits 0. Require -f instead.
     if(!ctx->stdoutMode && !overwrite && access(ctx->outFilename, F_OK) == 0){
-        if(ctx->stdinMode){
+        if(ctx->stdinMode || !isTerminal(STDIN_FILENO)){
             fprintf(stderr, "ERROR: %s already exists. Use -f to overwrite.\n", ctx->outFilename);
             free(outFilenameToFree);
             free(ctx);
             return EXIT_FAILURE;
         }
-        char ans;
         fprintf(stderr, "%s already exists. Overwrite? [y/N]: ", ctx->outFilename);
-        const int res = scanf(" %c", &ans);
-        if(res != 1 || ans != 'y'){
+        // Read the whole answer line: what stayed in the buffer of stdin
+        // would be read as data when the input is a pipe or a FIFO given by
+        // name, which prepareInput() moves onto stdin.
+        int c = getchar();
+        const bool yes = c == 'y' || c == 'Y';
+        while(c != '\n' && c != EOF){
+            c = getchar();
+        }
+        if(!yes){
             free(outFilenameToFree);
             free(ctx);
             return EXIT_SUCCESS;
