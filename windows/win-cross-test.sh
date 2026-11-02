@@ -3,12 +3,13 @@
 # win-cross-test.sh — Cross-compile t2sz for Windows and run the full CTest
 # suite through Wine (Debug build with LLVM coverage).
 #
-# All 78 tests are driven by CTest (no manual listing here).  The trick is to
+# All tests are driven by CTest (no manual listing here).  The trick is to
 # replace the built .exe files with shell-script wrappers that call Wine:
 # Linux does not care about extensions — it checks the shebang.
 #
 # The target architecture is auto-detected from the host.  On arm64 hosts Wine
-# is non-functional, so the script falls back to build-only mode.
+# is non-functional, so the script falls back to build-only mode; on amd64
+# hosts a Wine that does not work is an error.
 #
 # Usage:
 #   bash win-cross-test.sh
@@ -48,6 +49,9 @@ echo "====================================================="
 # ═══════════════════════════════════════════════════════════════════════════════
 # Install test-specific tools: Wine + zstd CLI
 # ═══════════════════════════════════════════════════════════════════════════════
+# win-cross-setup.sh updates the package lists only when it installs cmake,
+# which CI runners already have: lists older than the mirror fail installs.
+$SUDO apt-get update -qq
 $SUDO apt-get install -y -qq zstd > /dev/null 2>&1
 if ! command -v zstd &>/dev/null; then
     echo "ERROR: zstd CLI not available — cannot validate test outputs"
@@ -126,6 +130,12 @@ file "$BUILD_DIR/t2sz.exe"
 file "$BUILD_DIR/tests/gen_blob.exe"
 
 if [ -z "$WINE" ]; then
+    # Only arm64 hosts, where Wine cannot run, may skip the tests: on amd64
+    # (as in CI) the run must not pass without running a single test.
+    if [ "$ARCH" = amd64 ]; then
+        echo "ERROR: Wine does not work on this amd64 host: no test was run"
+        exit 1
+    fi
     echo ""
     echo "====================================================="
     echo "  Build OK (${ARCH}) — Wine not available, skipping tests"
