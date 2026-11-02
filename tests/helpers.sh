@@ -297,6 +297,9 @@ is_windows() {
     esac
 }
 
+# GNU tar takes the "C:" of a Windows path for a remote host name.
+is_windows && export TAR_OPTIONS="--force-local${TAR_OPTIONS:+ $TAR_OPTIONS}"
+
 # ── seek_table_frames <file> ────────────────────────────────────────────────
 # Prints Number_Of_Frames from the seek table footer.
 seek_table_frames() {
