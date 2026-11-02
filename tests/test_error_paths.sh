@@ -401,6 +401,22 @@ stdin_truncated_tar)
     log_pass "$TEST_NAME"
     ;;
 
+partial_tail_block)
+    # Bytes after the last complete 512-byte block (a cut archive, or bytes
+    # appended to it) are left out of the output with exit 0.
+    # Refusing the input (exit 1) is fine; dropping bytes silently is not.
+    make_small_tar "$WORK/good.tar"
+    cp "$WORK/good.tar" "$WORK/tail.tar"
+    head -c 100 /dev/urandom >> "$WORK/tail.tar"
+    RC=0
+    "$T2SZ" -o "$WORK/mmap.zst" -f "$WORK/tail.tar" 2>/dev/null || RC=$?
+    if [ "$RC" -eq 0 ]; then assert_roundtrip "$WORK/mmap.zst" "$WORK/tail.tar"; else assert_rc 1; fi
+    RC=0
+    "$T2SZ" -o "$WORK/stdin.zst" -f - < "$WORK/tail.tar" 2>/dev/null || RC=$?
+    if [ "$RC" -eq 0 ]; then assert_roundtrip "$WORK/stdin.zst" "$WORK/tail.tar"; else assert_rc 1; fi
+    log_pass "$TEST_NAME"
+    ;;
+
 stdin_truncated_payload)
     # Tar header declares a file but data is cut short → readExactStdin() EOF.
     make_small_tar "$WORK/good.tar"
