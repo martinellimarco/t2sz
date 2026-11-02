@@ -203,6 +203,7 @@ add_error_test(err_maxblock_no_eoa           maxblock_no_eoa)
 
 # ── Non-regular tar entries (dirs, symlinks) ────────────────────────────────
 add_error_test(err_tar_with_dirs_symlinks    tar_with_dirs_symlinks)
+add_error_test(err_gnu_sparse_extended       gnu_sparse_extended)
 
 # ── Explicit -o - with stdin ────────────────────────────────────────────────
 add_error_test(err_stdin_explicit_stdout_raw stdin_explicit_stdout_raw)
