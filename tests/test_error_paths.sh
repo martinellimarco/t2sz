@@ -786,6 +786,16 @@ unknown_option)
     log_pass "$TEST_NAME"
     ;;
 
+ustar_size_over_4gib)
+    # A member between 4 and 8 GiB has a plain octal size, but strtoul()
+    # returns an unsigned long, 32-bit on Windows and on 32-bit systems.
+    check_disk_space "$BLOBS_DIR" 10 || { log_skip "$TEST_NAME — needs 10 GB free"; exit 77; }
+    make_big_member_tar ustar 4294967297 "$WORK/big.tar"
+    assert_exit 0  "$T2SZ" -S 1G -o "$WORK/out.zst" -f "$WORK/big.tar"
+    assert_roundtrip "$WORK/out.zst" "$WORK/big.tar"
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── decodeMultiplier extra suffixes (K/KiB/MiB/G) ─────────────────────────
 
 multiplier_suffixes_extra)
