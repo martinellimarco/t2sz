@@ -86,8 +86,10 @@ make_small_dat() {
 
 # Assert that the zstd file $1 decompresses to exactly the bytes of $2.
 # Hashes rather than cmp: macOS cmp reads a pipe one byte at a time (35 MB/s).
+# zstd reads stdin: a native Windows zstd cannot open names outside the ANSI
+# code page.
 assert_roundtrip() {
-    if [ "$(zstd -d -c -q "$1" 2>/dev/null | $SHA256CMD | awk '{print $1}')" != "$(sha256_file "$2")" ]; then
+    if [ "$(zstd -d -c -q < "$1" 2>/dev/null | $SHA256CMD | awk '{print $1}')" != "$(sha256_file "$2")" ]; then
         log_fail "$TEST_NAME — $(basename "$1") does not decompress to $(basename "$2")"
         exit 1
     fi
@@ -283,6 +285,16 @@ auto_outname)
         log_fail "$TEST_NAME — expected auto-generated file input.dat.zst not found"
         exit 1
     }
+    log_pass "$TEST_NAME"
+    ;;
+
+non_ascii_filename)
+    # A file name outside the ANSI code page: on Windows argv and fopen()
+    # go through that code page, so the name cannot be opened.
+    name=$(printf 'dati_\346\227\245\346\234\254.tar')   # dati_日本.tar
+    make_small_tar "$WORK/$name" || { log_fail "$TEST_NAME — tar creation failed"; exit 1; }
+    assert_exit 0  "$T2SZ" -f "$WORK/$name"
+    assert_roundtrip "$WORK/$name.zst" "$WORK/$name"
     log_pass "$TEST_NAME"
     ;;
 
