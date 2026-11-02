@@ -263,6 +263,26 @@ corrupt_tar)
     log_pass "$TEST_NAME"
     ;;
 
+git_archive_checksum)
+    # git archive, and so every GitHub source tarball, writes the header
+    # checksum as 7 octal digits + NUL; isTarHeader() reads only 6 of them.
+    command -v git >/dev/null 2>&1 || { log_skip "$TEST_NAME — git not found"; exit 77; }
+    mkdir -p "$WORK/repo"
+    printf 'hello from git archive\n' > "$WORK/repo/hello.txt"
+    git -C "$WORK/repo" init -q && git -C "$WORK/repo" add hello.txt || {
+        log_fail "$TEST_NAME — git setup failed"
+        exit 1
+    }
+    tree=$(git -C "$WORK/repo" write-tree)
+    git -C "$WORK/repo" archive --format=tar "$tree" > "$WORK/git.tar" || {
+        log_fail "$TEST_NAME — git archive failed"
+        exit 1
+    }
+    assert_exit 0  "$T2SZ" -o "$WORK/out.zst" -f "$WORK/git.tar"
+    assert_roundtrip "$WORK/out.zst" "$WORK/git.tar"
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── Auto raw-mode detection ───────────────────────────────────────────────────
 
 auto_raw)
