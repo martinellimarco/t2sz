@@ -54,6 +54,16 @@ jobs:
       - name: Cross-compile Windows (Release, amd64 + arm64)
         run: bash windows/win-cross-build.sh both
 
+      # The tests ran on a Debug build: run the amd64 executable that is about
+      # to be published on a real archive (the arm64 one cannot run here).
+      - name: Smoke-test the amd64 executable under Wine
+        run: |
+          sudo apt-get update && sudo apt-get install -y wine zstd
+          WINE="$(command -v wine64 || command -v wine)"
+          tar cf smoke.tar README.md LICENSE src
+          WINEDEBUG=-all "$WINE" build-windows-amd64-release/t2sz.exe -f smoke.tar
+          zstd -d -c smoke.tar.zst | cmp - smoke.tar
+
       - name: Upload Windows executables
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
