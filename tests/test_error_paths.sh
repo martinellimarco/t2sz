@@ -426,9 +426,39 @@ stdout_tar_file)
     ;;
 
 empty_file)
-    # A zero-byte input file must trigger "Empty input file" error in prepareInput().
-    touch "$WORK/empty.bin"
-    assert_nonzero "$T2SZ" -r -o "$WORK/out.zst" -f "$WORK/empty.bin"
+    # An empty file is read like an empty stdin in raw mode: a valid zstd
+    # that decompresses to nothing. As a tar it has no entries, and the error
+    # names the file rather than stdin.
+    touch "$WORK/empty.bin" "$WORK/empty.tar"
+    assert_exit 0  "$T2SZ" -r -o "$WORK/out.zst" -f "$WORK/empty.bin"
+    assert_roundtrip "$WORK/out.zst" "$WORK/empty.bin"
+    run "$T2SZ" -o "$WORK/tar.zst" -f "$WORK/empty.tar" 2> "$WORK/err.txt"
+    assert_rc 1
+    grep -q 'empty\.tar' "$WORK/err.txt" || { log_fail "$TEST_NAME — the error does not name empty.tar: $(cat "$WORK/err.txt")"; exit 1; }
+    log_pass "$TEST_NAME"
+    ;;
+
+special_files)
+    # lseek() reports no size for a character device or a /proc file, and
+    # prepareInput() rejected them as "Empty input file": /dev/null here
+    # (NUL for a Windows program), and on Linux /proc/self/cmdline, which
+    # holds t2sz's own arguments.
+    null=/dev/null
+    is_windows && null=NUL
+    assert_exit 0  "$T2SZ" -f -o "$WORK/null.zst" "$null"
+    assert_roundtrip "$WORK/null.zst" /dev/null
+    if [ -r /proc/self/cmdline ] && ! is_windows; then
+        args=("$T2SZ" -f -o "$WORK/cmdline.zst" /proc/self/cmdline)
+        printf '%s\0' "${args[@]}" > "$WORK/cmdline"
+        assert_exit 0  "${args[@]}"
+        assert_roundtrip "$WORK/cmdline.zst" "$WORK/cmdline"
+    fi
+    # A directory is no input: the error names it, where reading it through
+    # stdin reported a read error.
+    mkdir -p "$WORK/dir.tar"
+    run "$T2SZ" -f -o "$WORK/dir.zst" "$WORK/dir.tar" 2> "$WORK/err.txt"
+    assert_rc 1
+    grep -q 'dir\.tar' "$WORK/err.txt" || { log_fail "$TEST_NAME — the error does not name dir.tar: $(cat "$WORK/err.txt")"; exit 1; }
     log_pass "$TEST_NAME"
     ;;
 
