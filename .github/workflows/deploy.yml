@@ -8,42 +8,11 @@ permissions:
   contents: write
 
 jobs:
-  test:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libzstd-dev zstd cmake
-
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
-
-      - name: Build
-        run: cmake --build build
-
-      - name: Test
-        run: ctest --test-dir build --output-on-failure -j4
-
-  test-asan:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libzstd-dev zstd cmake
-
-      - name: Configure
-        run: cmake -B build_asan -DBUILD_TESTS=ON -DSANITIZE=ON
-
-      - name: Build
-        run: cmake --build build_asan
-
-      - name: Test (ASAN + UBSan + LeakSanitizer)
-        run: ctest --test-dir build_asan --output-on-failure -j4
+  tests:
+    uses: ./.github/workflows/test.yml
 
   build:
-    needs: [test, test-asan]
+    needs: tests
     strategy:
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
@@ -77,16 +46,13 @@ jobs:
           gh release upload "${GITHUB_REF##*/}" ${{runner.workspace}}/build/*.deb
 
   build-windows:
-    needs: [test, test-asan]
+    needs: tests
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
       - name: Cross-compile Windows (Release, amd64 + arm64)
         run: bash windows/win-cross-build.sh both
-
-      - name: Cross-compile + test Windows (Debug, amd64 via Wine)
-        run: bash windows/win-cross-test.sh
 
       - name: Upload Windows executables
         env:
