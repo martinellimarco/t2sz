@@ -104,12 +104,18 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     argc = idx;
     argv[argc] = NULL;
 
-    /* Reset getopt state so it re-parses from the beginning. */
-    optind = 1;
-    opterr = 0;  /* suppress getopt's own error messages */
+    /* Reset getopt state so it re-parses from the beginning. optind = 1 is
+     * not enough for glibc and musl: they also keep their position inside
+     * the last option cluster, which usage() can leave half read ("-rl"),
+     * and that position points into the previous, freed input. optind = 0
+     * resets it too; BSD getopt has optreset for that. */
 #ifdef __APPLE__
-    optreset = 1;  /* BSD getopt requires this to reinitialize */
+    optind = 1;
+    optreset = 1;
+#else
+    optind = 0;
 #endif
+    opterr = 0;  /* suppress getopt's own error messages */
 
     /* Suppress stderr noise from usage() / version() / error messages. */
     int saved_stderr = dup(STDERR_FILENO);
