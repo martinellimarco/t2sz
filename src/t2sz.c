@@ -1013,10 +1013,11 @@ static void cleanupCompression(Context *ctx){
     }
     free(ctx->seekTable);      ctx->seekTable = NULL;
     ZSTD_freeCCtx(ctx->cctx);  ctx->cctx = NULL;
-    if(!ctx->stdoutMode){
-        fclose(ctx->outFile);
-    }else{
-        fflush(ctx->outFile);
+    // The last buffered bytes are written only now: a failure here leaves
+    // a truncated archive.
+    if((ctx->stdoutMode ? fflush(ctx->outFile) : fclose(ctx->outFile)) != 0){
+        fprintf(stderr, "ERROR: Failed to write output: %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
     }
     ctx->outFile = NULL;
     free(ctx->outBuff);        ctx->outBuff = NULL;
