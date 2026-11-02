@@ -202,6 +202,29 @@ file_not_found)
     log_pass "$TEST_NAME"
     ;;
 
+output_is_input)
+    # -o naming the input itself, with the same or another spelling of the
+    # path, or the file redirected to stdin: fopen("wb") truncates it before
+    # it is read.
+    check_output_is_input() {
+        make_small_tar "$WORK/input.tar"
+        sha_before=$(sha256_file "$WORK/input.tar")
+        RC=0
+        "$T2SZ" -f "$@" < "$WORK/input.tar" 2>/dev/null || RC=$?
+        [ "$sha_before" = "$(sha256_file "$WORK/input.tar")" ] || {
+            log_fail "$TEST_NAME — input overwritten (exit $RC, $*)"
+            exit 1
+        }
+        [ "$RC" -ne 0 ] || { log_fail "$TEST_NAME — exit 0 and nothing compressed ($*)"; exit 1; }
+        assert_rc 1
+    }
+    check_output_is_input -o "$WORK/input.tar" "$WORK/input.tar"
+    check_output_is_input -o "$WORK/./input.tar" "$WORK/input.tar"
+    # Wine, unlike Windows, does not let t2sz tell that stdin is the output.
+    is_wine || check_output_is_input -o "$WORK/input.tar" -
+    log_pass "$TEST_NAME"
+    ;;
+
 output_bad_path)
     # When the output path cannot be opened for writing (it is a directory),
     # fopen() returns NULL and prepareOutput() calls exit(1).
