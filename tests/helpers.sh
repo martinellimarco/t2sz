@@ -119,13 +119,15 @@ read_byte() {
     echo "${b[0]}"
 }
 
-# ── verify_seek_table <file> <expected_frames> ─────────────────────────────
+# ── verify_seek_table <file> <expected_frames> [<size>] ────────────────────
 # Reads the seek table at the tail of a seekable-zstd file and verifies:
 #   1. Seekable magic (0x8F92EAB1 = 2408770225) in the last 4 bytes
 #   2. Descriptor byte is 0x00
 #   3. Number_Of_Frames matches expected_frames
 #   4. Skippable magic (0x184D2A5E = 407710302) at the start of the skippable frame
 #   5. Frame_Size field == (N * 8) + 9
+#   6. The entries add up (verify_seek_table_sums), to <size> uncompressed
+#      bytes when given
 # Returns 0 on success, 1 on failure (logs the mismatch).
 verify_seek_table() {
     local file="$1"
@@ -185,12 +187,13 @@ verify_seek_table() {
         return 1
     fi
 
-    return 0
+    verify_seek_table_sums "$file" "$seek_table_size" "${3:-}"
 }
 
-# ── verify_seek_table_structure <file> ──────────────────────────────────────
+# ── verify_seek_table_structure <file> [<size>] ─────────────────────────────
 # Like verify_seek_table but without an expected frame count.
-# Verifies only internal consistency: magic numbers, descriptor, Frame_Size == N*8+9.
+# Verifies only internal consistency: magic numbers, descriptor, Frame_Size == N*8+9,
+# and the entries (verify_seek_table_sums).
 # Use for tests where the exact frame count is hard to predict (e.g. tar with -s/-S).
 verify_seek_table_structure() {
     local file="$1"
@@ -248,7 +251,25 @@ verify_seek_table_structure() {
         return 1
     fi
 
-    return 0
+    verify_seek_table_sums "$file" "$seek_table_size" "${2:-}"
+}
+
+# ── verify_seek_table_sums <file> <seek_table_size> [<size>] ────────────────
+# Checks the seek table entries against the file: their Compressed_Size
+# values must add up to the bytes before the seek table, and their
+# Decompressed_Size values to <size>, the uncompressed size, when given.
+verify_seek_table_sums() {
+    local file="$1" table_size="$2" size="${3:-}" file_size sums
+    file_size=$(wc -c < "$file")
+    sums=( $(seek_table_entries "$file" | awk '{ c += $1; d += $2 } END { printf "%.0f %.0f\n", c, d }') )
+    if [ "${sums[0]}" -ne $(( file_size - table_size )) ]; then
+        log_fail "verify_seek_table: the entries add up to ${sums[0]} compressed bytes, the frames take $(( file_size - table_size ))"
+        return 1
+    fi
+    if [ -n "$size" ] && [ "${sums[1]}" -ne "$size" ]; then
+        log_fail "verify_seek_table: the entries add up to ${sums[1]} uncompressed bytes, not $size"
+        return 1
+    fi
 }
 
 # ── verify_no_seek_table <file> ─────────────────────────────────────────────
