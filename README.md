@@ -21,7 +21,7 @@ This allows fast seeking and extraction of a single file without decompressing t
 
 When `-s SIZE` is used in tar mode, if the size of the file being compressed into a block is less than `SIZE` then another one will be added in the same block, and so on until the sum of the sizes of all files packed together is at least `SIZE`. A file will be never split as `SIZE` is just a minimum value.
 
-When `-s SIZE` is used in raw mode then it defines exactly the input block size and bigger inputs will be split in blocks of this size accordingly. If there isn't enough input data the last block will be smaller.
+When `-s SIZE` is used in raw mode then it defines exactly the input block size and bigger inputs will be split in blocks of this size accordingly. If there isn't enough input data the last block will be smaller. No block is larger than 2 GiB - 1 byte, the most the seek table describes: a larger `SIZE` is lowered to it.
 
 When `-S SIZE` is used, files bigger than `SIZE` will be split in blocks of `SIZE` length. It is available only in tar mode and ignored in raw mode.
 
@@ -130,6 +130,7 @@ Options:
                                         Each block is compressed to a zstd frame but if the archive has a lot of small files
                                         having a file per block doesn't compress very well. With this you can set a trade off.
                            The greater is SIZE the smaller will be the archive at the expense of the seek speed.
+                           A SIZE over 2 GiB - 1 byte, the most the seek table describes, is lowered to it.
                            SIZE may be followed by the following multiplicative suffixes:
                                k/K/KiB = 1024
                                M/MiB = 1024^2
@@ -142,6 +143,7 @@ Options:
                            Unlike -s this option may split big files in smaller chunks.
                            Remember that each block is compressed independently and a small value here will result in a bigger archive.
                            -S can be used together with -s but MUST be greater or equal to its value.
+                           In either mode no block is larger than 2 GiB - 1 byte, the most the seek table describes.
                            If -S and -s are equal the input block will be of exactly that size, if there is enough input data.
                            Like -s SIZE may be followed by one of the multiplicative suffixes described above.
         -T [1..N]          Number of thread to spawn. It improves compression speed but cost more memory. Default is single thread.
