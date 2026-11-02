@@ -11,8 +11,9 @@ The test suite exercises t2sz across three dimensions:
 | **Memory safety**  | AddressSanitizer + UBSanitizer | buffer overflows, use-after-free, undefined behaviour   |
 | **Code coverage**  | LLVM coverage + llvm-cov       | dead or untested code paths                             |
 
-78 tests in total: 30 round-trip tests and 48 CLI/error/edge-case tests.
-All three build configurations run the same 78 tests.
+Round-trip tests check the decompressed output against the input; CLI/error/edge-case
+tests check exit codes, messages and output structure. All three build
+configurations run the same tests.
 
 ---
 
@@ -35,7 +36,7 @@ cmake --build build
 cd build && ctest --output-on-failure
 ```
 
-Expected output: `100% tests passed, 0 tests failed out of 78`
+Expected output: `100% tests passed, 0 tests failed out of N`
 
 ---
 
@@ -138,7 +139,7 @@ bash ../tests/test_coverage.sh ../build_cov
 
 | Category                  | Tests                         | What is covered                                                                                  |
 |---------------------------|-------------------------------|--------------------------------------------------------------------------------------------------|
-| Seek table on-disk        | all 30 round-trip tests       | every round-trip verifies seek table magic, descriptor, Frame_Size, and Number_Of_Frames on disk |
+| Seek table on-disk        | all round-trip tests          | every round-trip verifies seek table magic, descriptor, Frame_Size, and Number_Of_Frames on disk |
 | No-seek-table (`-j`)      | `err_noseek_verify`           | verifies seekable magic `0x8F92EAB1` is absent when `-j` flag is used                            |
 | Non-multiple `-s` (mmap)  | `err_raw_nonmultiple_s`       | 1000001 bytes with `-s 256k`: partial last frame + seek table with 4 frames                      |
 | Non-multiple `-s` (stdin) | `err_stdin_raw_nonmultiple_s` | same via stdin: `compressStdinRaw()` Path B partial last frame                                   |
@@ -236,7 +237,7 @@ PE binary to `t2sz.real.exe` and creates a shell script at `t2sz.exe`:
 WINEDEBUG=-all exec wine64 "/path/to/t2sz.real.exe" "$@"
 ```
 
-This makes all 78 tests run through Wine with zero modifications to the test
+This makes all tests run through Wine with zero modifications to the test
 scripts or CMakeLists.txt.
 
 ### Environment variables
