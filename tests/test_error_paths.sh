@@ -393,6 +393,46 @@ stdin_empty_tar)
     log_pass "$TEST_NAME — exited $RC (no crash)"
     ;;
 
+one_frame_per_file)
+    # Besides pax 'x' and GNU 'L' headers, these entries got frames of their
+    # own: the pax global header ('g') that git archive writes first, the
+    # AppleDouble file ("._name") that macOS tar writes before a file with
+    # extended attributes, and each null block at the end of the archive
+    # (18 or more from GNU tar). From stdin, a frame that started with an
+    # extended header did not know its size.
+    longname=$(printf 'n%.0s' {1..150})
+    mkdir -p "$WORK/src"
+    printf '16 comment=t2sz\n' > "$WORK/src/pax_global_header"
+    printf 'T2SZ-LONG\n' > "$WORK/src/$longname"
+    printf 'T2SZ-APPLEDOUBLE\n' > "$WORK/src/._b.txt"
+    printf 'T2SZ-B\n' > "$WORK/src/b.txt"
+    COPYFILE_DISABLE=1 tar --format=pax -cf "$WORK/input.tar" -C "$WORK/src" pax_global_header "$longname" ._b.txt b.txt || {
+        log_fail "$TEST_NAME — tar creation failed"
+        exit 1
+    }
+    # Make the first file the global header that git archive writes.
+    off=$(grep -abo pax_global_header "$WORK/input.tar" | awk -F: '$1 % 512 == 0 { print $1; exit }')
+    set_tar_typeflag "$WORK/input.tar" "$off" g
+    head -c 8192 /dev/zero >> "$WORK/input.tar"
+    assert_exit 0  "$T2SZ" -o "$WORK/file.zst" -f "$WORK/input.tar"
+    assert_exit 0  "$T2SZ" -o "$WORK/stdin.zst" -f - < "$WORK/input.tar"
+    for src in file stdin; do
+        assert_roundtrip "$WORK/$src.zst" "$WORK/input.tar"
+        sizes=$(seek_table_entries "$WORK/$src.zst" | awk '{ printf "%s ", $2 }')
+        [ "$(seek_table_frames "$WORK/$src.zst")" -eq 3 ] || {
+            log_fail "$TEST_NAME — $src: frames of $sizes bytes, not one for each of the two files and one for the end blocks"
+            exit 1
+        }
+    done
+    a=$(frame_descriptors "$WORK/file.zst")
+    b=$(frame_descriptors "$WORK/stdin.zst")
+    [ "$a" = "$b" ] || {
+        log_fail "$TEST_NAME — frame header descriptors $b from stdin, $a from the file"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
 pax_header_own_frame)
     # A pax extended header ('x') or a GNU long name ('L') describes the
     # entry after it, but t2sz put it in a frame of its own: the frame of
@@ -742,9 +782,7 @@ stdin_frame_header)
     # size in the frame header, and zstd sizes window and tables for an
     # unbounded input (about 700 MiB of RAM at -l 22 for a tiny archive).
     # Without -s each entry has a frame of its own, whose size is known. The
-    # archive is ustar: an extended header (pax or GNU long name) shares the
-    # frame of the entry it describes, and from stdin the size of that frame
-    # is not known when it starts.
+    # archive is ustar, with no extended header (see one_frame_per_file).
     printf 'hello t2sz error tests\n' > "$WORK/hello.txt"
     COPYFILE_DISABLE=1 tar --format=ustar -cf "$WORK/input.tar" -C "$WORK" hello.txt || {
         log_fail "$TEST_NAME — tar creation failed"

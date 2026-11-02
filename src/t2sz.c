@@ -145,15 +145,32 @@ static uint64_t parseTarSize(const TarHeader *header){
 }
 
 /**
- * Test whether a tar header only describes the entry that follows it:
- * a pax extended header ('x') or a GNU long name or long link name ('L',
- * 'K'). Such a header belongs in the frame of that entry.
+ * Test whether a tar header only describes the entries that follow it: a
+ * pax extended or global header ('x', 'g') or a GNU long name or long link
+ * name ('L', 'K').
  *
  * @param header  Pointer to a valid tar header.
  * @return        true for an extended header.
  */
 static bool isExtensionHeader(const TarHeader *header){
-    return header->typeflag == 'x' || header->typeflag == 'L' || header->typeflag == 'K';
+    return header->typeflag == 'x' || header->typeflag == 'g' || header->typeflag == 'L' || header->typeflag == 'K';
+}
+
+/**
+ * Test whether a tar entry belongs in the frame of the entry after it: an
+ * extended header, or an AppleDouble file ("._name"), which macOS tar
+ * writes before the file whose extended attributes it holds.
+ *
+ * @param header  Pointer to a valid tar header.
+ * @return        true if the entry goes in the frame of the next one.
+ */
+static bool joinsNextEntry(const TarHeader *header){
+    const size_t len = strnlen(header->name, sizeof(header->name));
+    size_t base = len;
+    while(base > 0 && header->name[base - 1] != '/'){
+        base--;
+    }
+    return isExtensionHeader(header) || (len - base > 2 && header->name[base] == '.' && header->name[base + 1] == '_');
 }
 
 /**
@@ -885,8 +902,8 @@ static void startFrame(const Context *ctx, const unsigned long long size, uint64
 }
 
 /**
- * Open the frame of a tar element (a header with its padded payload, or a
- * null block) of @p size bytes, pledging its size.
+ * Open the frame of a tar element (an entry, with the entries that join it,
+ * or a run of null blocks) of @p size bytes, pledging its size.
  *
  * Without -s a frame never spans two elements, so a frame that opens with
  * an element holds exactly that element, or with -S its first part. With
@@ -1017,6 +1034,11 @@ static void compressStdinTar(Context *ctx){
     }
 
     uint8_t hdrBlock[512];
+    // Entries that join the next one (see joinsNextEntry()) wait here for it
+    // when they fit, so that the frame they share starts with its size known.
+    uint8_t held[64 * 1024];
+    size_t heldLen = 0;
+    uint64_t nullRun = 0; // null blocks read and not compressed yet, in bytes
 
     uint64_t frameIn = 0, frameOut = 0;
     bool frameOpen = false;
@@ -1031,30 +1053,39 @@ static void compressStdinTar(Context *ctx){
                 free(chunkBuf);
                 exit(EXIT_FAILURE);
             }
-            // EOF
-            break;
-        }
-        if(r != 512){
+        }else if(r != 512){
             // partial header => truncated stream
             fprintf(stderr, "ERROR: Truncated tar header on stdin\n");
             free(chunkBuf);
             exit(EXIT_FAILURE);
-        }
-
-        // Null block (end-of-archive marker): push into stream and continue.
-        if(isZeroTarBlock(hdrBlock)){
-            startElementFrame(ctx, 512, &frameIn, &frameOut, &frameOpen);
-            pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
-
+        }else if(isZeroTarBlock(hdrBlock)){
+            // A run of null blocks (the end of the archive) is one element,
+            // compressed below where it ends, its size then known.
+            nullRun += 512;
             if(ctx->verbose){
                 fprintf(stderr, "+ <null>\n");
             }
+            continue;
+        }
 
-            // In "one file per frame" mode, also close after a null block (matches mmap behaviour when -s is 0)
-            if(ctx->minBlockSize == 0 && frameOpen){
+        // At the end of a run of null blocks, or of the input, compress the
+        // entries held for the next one and the run as one element.
+        if(nullRun || (r == 0 && heldLen)){
+            startElementFrame(ctx, heldLen + nullRun, &frameIn, &frameOut, &frameOpen);
+            pushBytesTar(ctx, held, heldLen, &frameIn, &frameOut, &frameOpen);
+            heldLen = 0;
+            memset(chunkBuf, 0, inChunk);
+            while(nullRun){
+                const size_t take = nullRun > inChunk ? inChunk : (size_t)nullRun;
+                pushBytesTar(ctx, chunkBuf, take, &frameIn, &frameOut, &frameOpen);
+                nullRun -= take;
+            }
+            if(frameOpen && frameIn >= ctx->minBlockSize){
                 endFrameAndRecord(ctx, frameIn, frameOut, &frameOpen);
             }
-            continue;
+        }
+        if(r == 0){
+            break; // EOF
         }
 
         // Validate the tar header *before* pushing it into the compressor,
@@ -1078,13 +1109,31 @@ static void compressStdinTar(Context *ctx){
         const uint64_t mod = padded % 512;
         if(mod) padded = padded - mod + 512;
 
-        // Header is valid — include the 512-byte block in the stream. An
-        // extended header shares the frame of the next entry, and the number
-        // of GNU sparse map extension blocks is not known yet: no known size.
+        // An entry that joins the next one waits for it, when it fits.
+        const bool join = joinsNextEntry(header);
         bool sparseExt = hasSparseExtension(header);
-        if(!isExtensionHeader(header) && !sparseExt){
-            startElementFrame(ctx, 512 + padded, &frameIn, &frameOut, &frameOpen);
+        if(join && !sparseExt && 512 + padded <= sizeof(held) - heldLen){
+            memcpy(held + heldLen, hdrBlock, 512);
+            readExactStdin(held + heldLen + 512, (size_t)padded);
+            if(header->typeflag == 'x'){
+                paxNextSize = paxSize(held + heldLen + 512, (size_t)fileSize);
+            }
+            heldLen += 512 + (size_t)padded;
+            if(ctx->verbose){
+                fprintf(stderr, "+ %.100s (%llu)\n", header->name, (unsigned long long)padded);
+            }
+            continue;
         }
+
+        // Header is valid — include the 512-byte block in the stream, after
+        // the entries held for it. No known size for an entry too large to
+        // hold, which opens the frame of the next one, nor for a GNU sparse
+        // entry, whose number of map extension blocks is not known yet.
+        if(!join && !sparseExt){
+            startElementFrame(ctx, heldLen + 512 + padded, &frameIn, &frameOut, &frameOpen);
+        }
+        pushBytesTar(ctx, held, heldLen, &frameIn, &frameOut, &frameOpen);
+        heldLen = 0;
         pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
         while(sparseExt){
             readExactStdin(chunkBuf, 512);
@@ -1109,8 +1158,8 @@ static void compressStdinTar(Context *ctx){
             remaining -= take;
         }
 
-        // An extended header stays in the frame of the entry it describes.
-        if(isExtensionHeader(header)){
+        // An entry that joins the next one stays in its frame.
+        if(join){
             continue;
         }
 
@@ -1227,7 +1276,7 @@ void compressFile(Context *ctx){
 
         size_t tarHeaderIdx = 0;
         uint8_t* readBuff = ctx->inBuff;
-        bool extHeader = false; // the last header parsed describes the next entry
+        bool joinNext = false; // the last element goes in the block of the next one
         uint64_t paxNextSize = UINT64_MAX; // see tarEntrySize()
 
         bool lastChunk = false;
@@ -1311,7 +1360,7 @@ void compressFile(Context *ctx){
                             }
                             tarHeaderIdx += toNextHeader;
                             blockSize += toNextHeader;
-                            extHeader = isExtensionHeader(header);
+                            joinNext = joinsNextEntry(header);
 
                             if(ctx->verbose){
                                 fprintf(stderr, "+ %.100s (%zu)\n", header->name, size);
@@ -1326,7 +1375,8 @@ void compressFile(Context *ctx){
                         }
                         tarHeaderIdx+=512;
                         blockSize += 512;
-                        extHeader = false;
+                        // A run of null blocks (the end of the archive) is one element.
+                        joinNext = tarHeaderIdx + 512 <= ctx->inBuffSize && isZeroTarBlock(&ctx->inBuff[tarHeaderIdx]);
                     }
                     // -S applies to null blocks too, not only to entries.
                     if(ctx->maxBlockSize && blockSize > ctx->maxBlockSize){
@@ -1334,9 +1384,9 @@ void compressFile(Context *ctx){
                         blockSize = ctx->maxBlockSize;
                     }
                     lastChunk = tarHeaderIdx >= ctx->inBuffSize;
-                    // Go on below -s, and after an extended header, which stays in
-                    // the block of the entry it describes (unless -S split the block).
-                }while(!lastChunk && !residual && (blockSize < ctx->minBlockSize || extHeader));
+                    // Go on below -s, and after an element that joins the next one
+                    // (unless -S split the block).
+                }while(!lastChunk && !residual && (blockSize < ctx->minBlockSize || joinNext));
             }
 
             zstdResetFrame(ctx);
