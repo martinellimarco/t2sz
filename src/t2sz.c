@@ -1149,11 +1149,6 @@ void compressFile(Context *ctx){
                             tarHeaderIdx += toNextHeader;
                             blockSize += toNextHeader;
 
-                            if(ctx->maxBlockSize && blockSize > ctx->maxBlockSize){
-                                residual = blockSize - ctx->maxBlockSize;
-                                blockSize = ctx->maxBlockSize;
-                            }
-
                             if(ctx->verbose){
                                 fprintf(stderr, "+ %.100s (%zu)\n", header->name, size);
                             }
@@ -1167,6 +1162,11 @@ void compressFile(Context *ctx){
                         }
                         tarHeaderIdx+=512;
                         blockSize += 512;
+                    }
+                    // -S applies to null blocks too, not only to entries.
+                    if(ctx->maxBlockSize && blockSize > ctx->maxBlockSize){
+                        residual = blockSize - ctx->maxBlockSize;
+                        blockSize = ctx->maxBlockSize;
                     }
                     lastChunk = tarHeaderIdx >= ctx->inBuffSize;
                 }while(blockSize < ctx->minBlockSize && !lastChunk);

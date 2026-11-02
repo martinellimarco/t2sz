@@ -193,6 +193,7 @@ add_error_test(err_noseek_verify             noseek_verify)
 # ── Raw -s with non-multiple input size ─────────────────────────────────────
 add_error_test(err_raw_nonmultiple_s         raw_nonmultiple_s)
 add_error_test(err_stdin_raw_nonmultiple_s   stdin_raw_nonmultiple_s)
+add_error_test(err_maxblock_null_blocks      maxblock_null_blocks)
 
 # ── Tar trailing junk after end-of-archive ──────────────────────────────────
 add_error_test(err_trailing_junk_tar         trailing_junk_tar)
