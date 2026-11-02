@@ -11,6 +11,10 @@
  * file in the root directory of this source tree).
 ****************************************************************** */
 
+// 64-bit off_t also where it is 32 bits by default (Windows, 32-bit
+// glibc): lseek() must report the size of files of 2 GiB and more.
+#define _FILE_OFFSET_BITS 64
+
 #include <stdio.h>
 #include <getopt.h>
 #include <stdlib.h>
@@ -372,8 +376,10 @@ Context* newContext(){
  * No-op when ctx->stdinMode is true (stdin is handled separately).
  *
  * If the input is not seekable (pipe, FIFO, or process substitution such
- * as bash's <(...)), redirects the fd to stdin via dup2() and sets
- * ctx->stdinMode = true so the caller falls through to the streaming path.
+ * as bash's <(...)), or cannot be mapped (a file too large for the address
+ * space of a 32-bit build), redirects the fd, rewound, to stdin via dup2()
+ * and sets ctx->stdinMode = true so the caller falls through to the
+ * streaming path.
  *
  * @param ctx  The compression context (reads inFilename, stdinMode;
  *             writes inBuff, inBuffSize, stdinMode).
@@ -397,41 +403,35 @@ void prepareInput(Context *ctx){
     }
 
     const off_t end = lseek(fd, 0, SEEK_END);
-    if(end < 0){
-        // Non-seekable input (pipe, FIFO, or process substitution).
-        // Redirect to stdin so the streaming code path can handle it.
-        if(fd != STDIN_FILENO){
-            if(dup2(fd, STDIN_FILENO) < 0){
-                fprintf(stderr, "ERROR: Unable to redirect '%s' to stdin\n",
-                        ctx->inFilename);
-                close(fd);
-                exit(EXIT_FAILURE);
-            }
-            close(fd);
-        }
-        ctx->stdinMode = true;
-        return;
-    }
     if(end == 0){
         fprintf(stderr, "ERROR: Empty input file '%s'\n", ctx->inFilename);
         close(fd);
         exit(EXIT_FAILURE);
     }
-    if((unsigned long long)end > SIZE_MAX){
-        fprintf(stderr, "ERROR: Input file '%s' is too large to map into memory\n",
-                ctx->inFilename);
-        close(fd);
-        exit(EXIT_FAILURE);
+    if(end > 0 && (unsigned long long)end <= SIZE_MAX){
+        ctx->inBuffSize = (size_t)end;
+        ctx->inBuff = (uint8_t*)mmap(NULL, ctx->inBuffSize, PROT_READ, MAP_PRIVATE, fd, 0);
+        if(ctx->inBuff != MAP_FAILED){
+            close(fd);
+            return;
+        }
+        ctx->inBuff = NULL;
     }
-    ctx->inBuffSize = (size_t)end;
 
-    ctx->inBuff = (uint8_t*)mmap(NULL, ctx->inBuffSize, PROT_READ, MAP_PRIVATE, fd, 0);
-    if(ctx->inBuff == MAP_FAILED){
-        fprintf(stderr, "ERROR: Unable to mmap '%s'\n", ctx->inFilename);
+    // Not seekable (pipe, FIFO, or process substitution), or too large to
+    // map: redirect it, from its start, to stdin so the streaming code path
+    // can handle it.
+    lseek(fd, 0, SEEK_SET);
+    if(fd != STDIN_FILENO){
+        if(dup2(fd, STDIN_FILENO) < 0){
+            fprintf(stderr, "ERROR: Unable to redirect '%s' to stdin\n",
+                    ctx->inFilename);
+            close(fd);
+            exit(EXIT_FAILURE);
+        }
         close(fd);
-        exit(EXIT_FAILURE);
     }
-    close(fd);
+    ctx->stdinMode = true;
 }
 
 /**

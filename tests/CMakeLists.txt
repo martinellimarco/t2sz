@@ -186,6 +186,8 @@ add_error_test(err_stdin_truncated_tar     stdin_truncated_tar)
 add_error_test(err_stdin_truncated_payload stdin_truncated_payload)
 add_error_test(err_stdout_tar_file         stdout_tar_file)
 add_error_test(err_empty_file              empty_file)
+add_error_test(err_input_over_2gib         input_over_2gib)
+set_tests_properties(err_input_over_2gib PROPERTIES TIMEOUT 900)
 
 # ── Seek table structural verification ──────────────────────────────────────
 add_error_test(err_noseek_verify             noseek_verify)

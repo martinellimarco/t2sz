@@ -432,6 +432,30 @@ empty_file)
     log_pass "$TEST_NAME"
     ;;
 
+input_over_2gib)
+    # A file of 2 GiB or more where off_t is 32 bits (Windows, 32-bit Linux):
+    # lseek() fails, so prepareInput() takes the file for a pipe and reads
+    # it as stdin from wherever the failed lseek() left the offset. The one
+    # 3 GiB frame also loses the seek table (huge_raw_frame_seek_table);
+    # this test does not look at it.
+    check_disk_space "$BLOBS_DIR" 4 || { log_skip "$TEST_NAME — needs 4 GB free"; exit 77; }
+    make_big_file "$WORK/big.bin" 3221225472
+    assert_exit 0  "$T2SZ" -r -f -o "$WORK/out.zst" "$WORK/big.bin"
+    assert_roundtrip "$WORK/out.zst" "$WORK/big.bin"
+    # A mapped file is compressed with its size pledged; without -s the
+    # stdin path cannot know it, so the frame header shows which path was
+    # taken. Only a 64-bit build has the address space to map 3 GiB; a
+    # 32-bit one streams the file.
+    if [ "$(getconf LONG_BIT 2>/dev/null)" != 32 ]; then
+        fhd=$(read_byte "$WORK/out.zst" 4)
+        [ $(( fhd & 0xE0 )) -ne 0 ] || {
+            log_fail "$TEST_NAME — no content size in the frame header: the file went through the stdin path"
+            exit 1
+        }
+    fi
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── Seek table structural verification ──────────────────────────────────────
 
 noseek_verify)
