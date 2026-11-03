@@ -141,6 +141,9 @@ add_error_test(err_close_error_exit  close_error_exit)
 # ── Interactive overwrite prompt ───────────────────────────────────────────────
 add_error_test(err_overwrite_no      overwrite_no)
 add_error_test(err_overwrite_yes     overwrite_yes)
+add_error_test(err_prompt_dev_stdin  prompt_dev_stdin)
+add_error_test(err_prompt_eats_loop_input prompt_eats_loop_input)
+add_error_test(err_prompt_eof        prompt_eof)
 
 # ── Corrupted tar — isTarHeader() checksum-mismatch error path ────────────────
 add_error_test(err_corrupt_tar       corrupt_tar)

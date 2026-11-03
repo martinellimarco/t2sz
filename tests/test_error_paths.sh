@@ -135,6 +135,34 @@ make_big_member_tar() {
     rm -f "$WORK/bigsrc/big"
 }
 
+# Run "$@" on a terminal: script(1) gives it a pseudo-terminal as stdin,
+# stdout and stderr, and types the text $1 into it. Sets RC like run(); what
+# the terminal shows is in "$WORK/tty.out". Skips the test where there is no
+# terminal to give: without script(1), and on Windows, where an MSYS pty is
+# a pipe to native programs.
+run_in_terminal() {
+    local input="$1" cmd n=0
+    shift
+    is_windows && { log_skip "$TEST_NAME — no terminal for native Windows programs"; exit 77; }
+    cmd="$(printf '%q ' "$@"); echo \$? > '$WORK/tty.rc'"
+    rm -f "$WORK/tty.rc"    # left by an earlier call of the same test
+    # Keep typing open until the command ends: BSD script(1) sends the
+    # terminal an end-of-file as soon as its stdin closes, ahead of the text.
+    type_input() {
+        printf '%s' "$input"
+        while [ ! -e "$WORK/tty.rc" ] && [ "$n" -lt 200 ]; do sleep 0.1; n=$((n + 1)); done
+    }
+    if script -q /dev/null true < /dev/null > /dev/null 2>&1; then         # BSD
+        type_input | script -q /dev/null sh -c "$cmd" > "$WORK/tty.out" 2>&1
+    elif script -q -c true /dev/null < /dev/null > /dev/null 2>&1; then    # util-linux
+        type_input | script -q -c "$cmd" /dev/null > "$WORK/tty.out" 2>&1
+    else
+        log_skip "$TEST_NAME — no script(1) to provide a terminal"
+        exit 77
+    fi
+    RC=$(cat "$WORK/tty.rc")
+}
+
 # ── Test dispatch ─────────────────────────────────────────────────────────────
 case "$TEST_NAME" in
 
@@ -263,12 +291,12 @@ close_error_exit)
 # ── Interactive overwrite prompt ──────────────────────────────────────────────
 
 overwrite_no)
-    # Answering 'n' to the overwrite prompt must leave the output file unchanged
-    # and return exit code 0, covering the scanf branch where ans != 'y'.
+    # Answering 'n' to the overwrite prompt on a terminal must leave the output
+    # file unchanged and return exit code 0.
     make_small_dat "$WORK/input.dat"
     printf 'SENTINEL' > "$WORK/out.zst"
-    RC=0
-    echo n | "$T2SZ" -o "$WORK/out.zst" "$WORK/input.dat" 2>/dev/null || RC=$?
+    run_in_terminal 'n
+' "$T2SZ" -o "$WORK/out.zst" "$WORK/input.dat"
     [ "$RC" -eq 0 ] || { log_fail "$TEST_NAME — expected exit 0, got $RC"; exit 1; }
     content=$(cat "$WORK/out.zst")
     if [ "$content" != "SENTINEL" ]; then
@@ -279,12 +307,12 @@ overwrite_no)
     ;;
 
 overwrite_yes)
-    # Answering 'y' to the overwrite prompt must replace the output file and
-    # return exit code 0, covering the scanf branch where ans == 'y'.
+    # Answering 'y' (or 'Y') to the overwrite prompt on a terminal must
+    # replace the output file and return exit code 0.
     make_small_dat "$WORK/input.dat"
     printf 'x' > "$WORK/out.zst"    # 1-byte placeholder
-    RC=0
-    echo y | "$T2SZ" -o "$WORK/out.zst" "$WORK/input.dat" 2>/dev/null || RC=$?
+    run_in_terminal 'y
+' "$T2SZ" -o "$WORK/out.zst" "$WORK/input.dat"
     [ "$RC" -eq 0 ] || { log_fail "$TEST_NAME — expected exit 0, got $RC"; exit 1; }
     # A valid compressed output must be larger than the 1-byte placeholder.
     bytes=$(wc -c < "$WORK/out.zst")
@@ -292,6 +320,73 @@ overwrite_yes)
         log_fail "$TEST_NAME — output file was not overwritten after answering 'y'"
         exit 1
     }
+    printf 'x' > "$WORK/out.zst"
+    run_in_terminal 'Y
+' "$T2SZ" -o "$WORK/out.zst" "$WORK/input.dat"
+    [ "$RC" -eq 0 ] && [ "$(wc -c < "$WORK/out.zst")" -gt 1 ] || {
+        log_fail "$TEST_NAME — output file was not overwritten after answering 'Y' (exit $RC)"
+        exit 1
+    }
+    # The rest of the answer must not end up in the archive: a FIFO given by
+    # name is read through stdin once the prompt is over.
+    head -c 5000 /dev/urandom > "$WORK/data.bin"
+    mkfifo "$WORK/data.fifo"
+    cat "$WORK/data.bin" > "$WORK/data.fifo" &
+    writer=$!
+    run_in_terminal 'yes
+' "$T2SZ" -r -o "$WORK/out.zst" "$WORK/data.fifo"
+    kill "$writer" 2>/dev/null
+    wait "$writer" 2>/dev/null
+    [ "$RC" -eq 0 ] || { log_fail "$TEST_NAME — FIFO input: expected exit 0, got $RC"; exit 1; }
+    assert_roundtrip "$WORK/out.zst" "$WORK/data.bin"
+    log_pass "$TEST_NAME"
+    ;;
+
+prompt_dev_stdin)
+    # Input named /dev/stdin (a pipe here) and an existing output without -f:
+    # the overwrite prompt takes its answer from the data being compressed.
+    # Refusing is fine; exiting 0 with an output that is not the input is not.
+    is_windows && { log_skip "$TEST_NAME — no /dev/stdin for native programs"; exit 77; }
+    printf 'y' > "$WORK/input.bin"
+    head -c 3000 /dev/urandom >> "$WORK/input.bin"
+    printf 'SENTINEL' > "$WORK/out.zst"
+    RC=0
+    cat "$WORK/input.bin" | "$T2SZ" -r -o "$WORK/out.zst" /dev/stdin 2>/dev/null || RC=$?
+    if [ "$RC" -eq 0 ]; then
+        assert_roundtrip "$WORK/out.zst" "$WORK/input.bin"
+    else
+        assert_rc 1
+        [ "$(cat "$WORK/out.zst")" = "SENTINEL" ] || { log_fail "$TEST_NAME — exit $RC but out.zst was modified"; exit 1; }
+    fi
+    log_pass "$TEST_NAME"
+    ;;
+
+prompt_eats_loop_input)
+    # In a "while read" loop t2sz shares stdin with the loop: the overwrite
+    # prompt for the first file swallows the rest of the list.
+    make_small_dat "$WORK/a.dat"
+    make_small_dat "$WORK/b.dat"
+    printf 'SENTINEL' > "$WORK/a.dat.zst"
+    printf '%s\n' "$WORK/a.dat" "$WORK/b.dat" | while read -r f; do
+        "$T2SZ" -r "$f" 2>/dev/null
+    done
+    [ -f "$WORK/b.dat.zst" ] || {
+        log_fail "$TEST_NAME — b.dat never compressed: the prompt consumed the loop input"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
+prompt_eof)
+    # No answer to the overwrite prompt (stdin at EOF, as under cron or CI):
+    # nothing is written, yet t2sz exits 0.
+    make_small_dat "$WORK/input.dat"
+    printf 'SENTINEL' > "$WORK/out.zst"
+    RC=0
+    "$T2SZ" -r -o "$WORK/out.zst" "$WORK/input.dat" < /dev/null 2>/dev/null || RC=$?
+    [ "$(cat "$WORK/out.zst")" = "SENTINEL" ] || { log_fail "$TEST_NAME — out.zst overwritten"; exit 1; }
+    [ "$RC" -ne 0 ] || { log_fail "$TEST_NAME — exit 0 although nothing was written"; exit 1; }
+    assert_rc 1
     log_pass "$TEST_NAME"
     ;;
 
@@ -1069,7 +1164,7 @@ pax_size)
 stdin_overwrite_no_force)
     # Piping data through stdin with an existing output file and no -f flag.
     # An interactive prompt would corrupt the pipe, so t2sz must refuse with
-    # a clear error message and exit 1 instead of calling scanf().
+    # a clear error message and exit 1 instead of prompting.
     make_small_dat "$WORK/input.dat"
     printf 'SENTINEL' > "$WORK/existing.zst"
     RC=0

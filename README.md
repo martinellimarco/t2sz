@@ -150,7 +150,8 @@ Options:
         -r                 Raw mode or non-tar mode. Treat tar archives as regular files, without any special handling.
         -j                 Do not generate a seek table.
         -v                 Verbose. List the elements in the tar archive and their size.
-        -f                 Overwrite output without prompting.
+        -f                 Overwrite output without prompting. Without it an existing output is replaced
+                           only after a yes typed on a terminal.
         -h                 Print this help.
         -V                 Print the version.
 
