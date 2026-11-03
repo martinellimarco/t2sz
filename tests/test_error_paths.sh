@@ -775,6 +775,38 @@ tar_with_dirs_symlinks)
     log_pass "$TEST_NAME"
     ;;
 
+gnu_sparse_extended)
+    # GNU tar --sparse (gnu format) with more than 4 data segments keeps the
+    # rest of the sparse map in extension blocks after the header. t2sz does
+    # not skip them, so it looks for the next header inside the payload
+    # (random data here, so it cannot pass for an end-of-archive block).
+    GTAR=""
+    for t in gtar tar; do
+        if command -v "$t" >/dev/null 2>&1 && "$t" --version 2>/dev/null | grep -q 'GNU tar'; then
+            GTAR="$t"
+            break
+        fi
+    done
+    [ -n "$GTAR" ] || { log_skip "$TEST_NAME — GNU tar not found"; exit 77; }
+    make_sparse "$WORK/sparse.bin" $(( 6 * 1048576 ))
+    head -c 4096 /dev/urandom > "$WORK/segment.bin"
+    for i in 0 1 2 3 4 5; do
+        dd if="$WORK/segment.bin" of="$WORK/sparse.bin" bs=4096 seek=$(( i * 256 )) conv=notrunc 2>/dev/null
+    done
+    "$GTAR" --sparse --format=gnu -cf "$WORK/sparse.tar" -C "$WORK" sparse.bin || {
+        log_fail "$TEST_NAME — tar creation failed"
+        exit 1
+    }
+    # typeflag 'S' (83) with the isextended flag (offset 482) set
+    if [ "$(read_byte "$WORK/sparse.tar" 156)" -ne 83 ] || [ "$(read_byte "$WORK/sparse.tar" 482)" -ne 1 ]; then
+        log_skip "$TEST_NAME — $GTAR wrote no sparse entry with extension blocks"
+        exit 77
+    fi
+    assert_exit 0  "$T2SZ" -o "$WORK/out.zst" -f "$WORK/sparse.tar"
+    assert_roundtrip "$WORK/out.zst" "$WORK/sparse.tar"
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── Explicit -o - with stdin ────────────────────────────────────────────────
 
 stdin_explicit_stdout_raw)

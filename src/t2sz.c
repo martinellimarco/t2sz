@@ -160,6 +160,19 @@ static bool isExtensionHeader(const TarHeader *header){
     return header->typeflag == 'x' || header->typeflag == 'L' || header->typeflag == 'K';
 }
 
+/**
+ * Test whether a GNU sparse header ('S') continues its sparse map in
+ * extension blocks: 512-byte blocks between the header and the payload,
+ * not counted in the size field, each with a flag at offset 504 telling
+ * whether another one follows.
+ *
+ * @param header  Pointer to a valid tar header.
+ * @return        true if extension blocks follow the header.
+ */
+static bool hasSparseExtension(const TarHeader *header){
+    return header->typeflag == 'S' && ((const uint8_t*)header)[482];
+}
+
 typedef struct {
     uint32_t compressedSize;
     uint32_t decompressedSize;
@@ -1040,11 +1053,18 @@ static void compressStdinTar(Context *ctx){
         if(mod) padded = padded - mod + 512;
 
         // Header is valid — include the 512-byte block in the stream. An
-        // extended header shares the frame of the next entry: no known size.
-        if(!isExtensionHeader(header)){
+        // extended header shares the frame of the next entry, and the number
+        // of GNU sparse map extension blocks is not known yet: no known size.
+        bool sparseExt = hasSparseExtension(header);
+        if(!isExtensionHeader(header) && !sparseExt){
             startElementFrame(ctx, 512 + padded, &frameIn, &frameOut, &frameOpen);
         }
         pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
+        while(sparseExt){
+            readExactStdin(chunkBuf, 512);
+            pushBytesTar(ctx, chunkBuf, 512, &frameIn, &frameOut, &frameOpen);
+            sparseExt = chunkBuf[504];
+        }
 
         if(ctx->verbose){
             fprintf(stderr, "+ %.100s (%llu)\n", header->name, (unsigned long long)padded);
@@ -1225,7 +1245,9 @@ void compressFile(Context *ctx){
                         TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
                         if(isTarHeader(header)){
                             const uint64_t entrySize = parseTarSize(header);
-                            if(entrySize > SIZE_MAX - 1024){
+                            // No entry is larger than the whole input, which also
+                            // keeps the sums below from overflowing.
+                            if(entrySize > ctx->inBuffSize){
                                 fprintf(stderr, "ERROR: Invalid tar entry size (too large)\n");
                                 exit(EXIT_FAILURE);
                             }
@@ -1235,7 +1257,14 @@ void compressFile(Context *ctx){
                             if(mod){
                                 size = size - mod + 512;
                             }
-                            const size_t toNextHeader  = size + 512;
+                            size_t sparseExt = 0; // GNU sparse map extension blocks
+                            if(hasSparseExtension(header)){
+                                do{
+                                    sparseExt += 512;
+                                }while(tarHeaderIdx + sparseExt + 512 <= ctx->inBuffSize
+                                       && ctx->inBuff[tarHeaderIdx + sparseExt + 504]);
+                            }
+                            const size_t toNextHeader  = size + 512 + sparseExt;
 
                             // Check that the complete entry (header + padded
                             // payload) fits within the mapped buffer.
