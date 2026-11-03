@@ -3,8 +3,9 @@
 /**
  * fuzz_tar_mmap — libFuzzer harness for the mmap tar-parsing code path.
  *
- * Exercises compressFile() in tar mode with a memory-mapped input buffer
- * pointing directly at the fuzzer's data. Output is discarded to /dev/null.
+ * Exercises compressFile() with a memory-mapped input buffer pointing
+ * directly at the fuzzer's data, in tar and raw mode with the -s and -S
+ * settings of fuzz_tar.h. Output is discarded to /dev/null.
  *
  * A custom mutator recalculates tar header checksums after each mutation,
  * allowing the fuzzer to efficiently explore code paths past the checksum
@@ -16,6 +17,7 @@
 
 /* T2SZ_NO_MAIN and VERSION are provided via -D flags in CMakeLists.txt. */
 #include "../src/t2sz.c"
+#include "fuzz_tar.h"
 
 #include <setjmp.h>
 #include <unistd.h>
@@ -134,7 +136,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     int jumped = setjmp(fuzz_jmp);
     if (jumped == 0) {
         ctx = newContext();
-        ctx->rawMode    = false;
+        fuzzSetMode(ctx, size);
         ctx->stdinMode  = false;
         ctx->stdoutMode = true;   /* write compressed output to stdout */
         ctx->level      = 1;      /* fastest compression level */

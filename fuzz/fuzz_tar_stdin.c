@@ -3,8 +3,10 @@
 /**
  * fuzz_tar_stdin — libFuzzer harness for the stdin tar-parsing code path.
  *
- * Exercises compressStdinTar() by replacing stdin with a memory-backed FILE*
- * (fmemopen) pointing at the fuzzer's data. Output is discarded to /dev/null.
+ * Exercises compressStdinTar(), and compressStdinRaw() in raw mode, with the
+ * -s and -S settings of fuzz_tar.h, by replacing stdin with a memory-backed
+ * FILE* (fmemopen) pointing at the fuzzer's data. Output is discarded to
+ * /dev/null.
  *
  * A custom mutator recalculates tar header checksums after each mutation,
  * allowing the fuzzer to efficiently explore code paths past the checksum
@@ -16,6 +18,7 @@
 
 /* T2SZ_NO_MAIN and VERSION are provided via -D flags in CMakeLists.txt. */
 #include "../src/t2sz.c"
+#include "fuzz_tar.h"
 
 #include <setjmp.h>
 #include <unistd.h>
@@ -119,7 +122,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     int jumped = setjmp(fuzz_jmp);
     if (jumped == 0) {
         ctx = newContext();
-        ctx->rawMode    = false;
+        fuzzSetMode(ctx, size);
         ctx->stdinMode  = true;
         ctx->stdoutMode = true;
         ctx->level      = 1;
@@ -127,7 +130,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 
         prepareOutput(ctx);
         prepareCctx(ctx);
-        compressStdinTar(ctx);
+        if (ctx->rawMode)
+            compressStdinRaw(ctx);
+        else
+            compressStdinTar(ctx);
         /* Normal completion: write seek table and clean up. */
         if (!ctx->skipSeekTable)
             writeSeekTable(ctx);
