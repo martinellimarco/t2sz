@@ -1146,9 +1146,12 @@ void compressFile(Context *ctx){
                             residual = 0;
                         }
                     }else if(tarHeaderIdx + 512 > ctx->inBuffSize){
-                        // Not enough data for a full header — truncated archive.
-                        lastChunk = true;
-                        break;
+                        // Less than a block left: refuse it, as the stdin path does,
+                        // rather than drop it from the output.
+                        fprintf(stderr, "ERROR: Truncated tar archive (%zu bytes after the last 512-byte block). "
+                                "If this is not a tar archive use raw mode (-r)\n",
+                                ctx->inBuffSize - tarHeaderIdx);
+                        exit(EXIT_FAILURE);
                     }else if(!isZeroTarBlock(&ctx->inBuff[tarHeaderIdx])){//tar ends with null headers that we can skip
                         TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
                         if(isTarHeader(header)){
@@ -1200,13 +1203,6 @@ void compressFile(Context *ctx){
                     }
                     lastChunk = tarHeaderIdx >= ctx->inBuffSize;
                 }while(blockSize < ctx->minBlockSize && !lastChunk);
-
-                // If no data was accumulated (e.g., the truncation guard fired
-                // on the first iteration with no prior headers), skip the
-                // compression step to avoid emitting a spurious empty frame.
-                if(blockSize == 0){
-                    break;
-                }
             }
 
             zstdResetFrame(ctx);
