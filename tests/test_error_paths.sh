@@ -217,6 +217,35 @@ output_bad_path)
     log_pass "$TEST_NAME"
     ;;
 
+close_error_exit)
+    # The last buffered bytes reach the file only in fclose() (or fflush()
+    # for stdout), whose result is ignored: a write error there leaves a
+    # truncated archive and exit 0. ulimit -f 1, with SIGXFSZ ignored, makes
+    # write() fail with EFBIG past 1 KiB; the ~2 KiB output stays in the
+    # stdio buffer until the end.
+    is_windows && { log_skip "$TEST_NAME — ulimit -f has no effect on Windows"; exit 77; }
+    head -c 2000 /dev/urandom > "$WORK/input.bin"
+    RC=0
+    ( trap '' XFSZ; ulimit -f 1; exec "$T2SZ" -r -f -o "$WORK/out.zst" "$WORK/input.bin" ) 2>/dev/null || RC=$?
+    [ "$RC" -ne 0 ] || {
+        log_fail "$TEST_NAME — -o file: exit 0 with an archive cut to $(wc -c < "$WORK/out.zst" | tr -d ' ') bytes"
+        exit 1
+    }
+    assert_rc 1
+    RC=0
+    ( trap '' XFSZ; ulimit -f 1; exec "$T2SZ" -r -o - "$WORK/input.bin" > "$WORK/stdout.zst" ) 2>/dev/null || RC=$?
+    [ "$RC" -ne 0 ] || {
+        log_fail "$TEST_NAME — -o -: exit 0 with an archive cut to $(wc -c < "$WORK/stdout.zst" | tr -d ' ') bytes"
+        exit 1
+    }
+    assert_rc 1
+    # A closed stdout fails the same way: the archive is lost.
+    run "$T2SZ" -r -o - "$WORK/input.bin" >&- 2>/dev/null
+    [ "$RC" -ne 0 ] || { log_fail "$TEST_NAME — -o - with stdout closed: exit 0, archive lost"; exit 1; }
+    assert_rc 1
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── Interactive overwrite prompt ──────────────────────────────────────────────
 
 overwrite_no)
