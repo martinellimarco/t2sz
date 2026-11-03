@@ -362,3 +362,24 @@ make_sparse() {
 poke() {
     printf '%s' "$3" | dd of="$1" bs=1 seek="$2" conv=notrunc 2>/dev/null
 }
+
+# ── set_tar_typeflag <archive> <offset> <flag> ──────────────────────────────
+# Sets the typeflag of the tar header at <offset> and rewrites its checksum
+# as tar writes it: 6 octal digits, NUL, space.
+set_tar_typeflag() {
+    local sum
+    poke "$1" $(( $2 + 156 )) "$3"
+    poke "$1" $(( $2 + 148 )) '        '
+    sum=$(od -A n -t u1 -v -j "$2" -N 512 "$1" | awk '{ for (i = 1; i <= NF; i++) s += $i } END { print s }')
+    printf '%06o\0 ' "$sum" | dd of="$1" bs=1 seek=$(( $2 + 148 )) conv=notrunc 2>/dev/null
+}
+
+# ── frame_descriptors <file> ────────────────────────────────────────────────
+# Prints the Frame_Header_Descriptor of every frame listed in the seek table.
+frame_descriptors() {
+    local off=0 c
+    for c in $(seek_table_entries "$1" | awk '{ print $1 }'); do
+        printf '%s ' "$(read_byte "$1" $(( off + 4 )))"
+        off=$(( off + c ))
+    done
+}
