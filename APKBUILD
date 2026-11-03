@@ -7,8 +7,8 @@ pkgdesc="t2sz compresses a file into a seekable zstd with special handling for t
 url="https://github.com/martinellimarco/t2sz"
 arch="all"
 license="GPL-3.0-or-later"
-depends="zstd-dev"
-makedepends="git cmake ninja bash"
+makedepends="cmake samurai zstd-dev"
+checkdepends="bash grep tar zstd"
 source="$pkgname-$pkgver.tar.gz::https://github.com/martinellimarco/t2sz/archive/refs/tags/v$pkgver.tar.gz"
 builddir="$srcdir/"
 
@@ -37,8 +37,10 @@ check() {
 }
 
 package() {
-        cd "$srcdir/$pkgname-$pkgver/build"
-        make DESTDIR="$pkgdir/" install
+        cd "$srcdir/$pkgname-$pkgver"
+        DESTDIR="$pkgdir" cmake --install build
 }
 
-sha512sums=""
+sha512sums="
+e2aa383d59c3b510e0f53e22a3a9941710472f1840859295a5d4ee181d8486a83029cfa1ef345d9bf6e44841d5cb16f9ffff5d00fd8a2ac4067d4f139cd2adf7  t2sz-1.2.5.tar.gz
+"
