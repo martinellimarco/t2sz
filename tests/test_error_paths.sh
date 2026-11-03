@@ -622,6 +622,23 @@ stdin_raw_nonmultiple_s)
     log_pass "$TEST_NAME"
     ;;
 
+maxblock_null_blocks)
+    # -S is the maximum frame size, but the mmap path adds end-of-archive
+    # blocks to a frame without checking it.
+    make_small_tar "$WORK/input.tar"
+    assert_exit 0  "$T2SZ" -s 1000 -S 1000 -o "$WORK/file.zst" -f "$WORK/input.tar"
+    assert_exit 0  "$T2SZ" -s 1000 -S 1000 -o "$WORK/stdin.zst" -f - < "$WORK/input.tar"
+    for src in file stdin; do
+        assert_roundtrip "$WORK/$src.zst" "$WORK/input.tar"
+        max=$(seek_table_entries "$WORK/$src.zst" | awk '$2 > m { m = $2 } END { print m + 0 }')
+        [ "$max" -le 1000 ] || {
+            log_fail "$TEST_NAME — $src: a frame holds $max bytes, more than -S 1000"
+            exit 1
+        }
+    done
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── Tar trailing junk after end-of-archive ──────────────────────────────────
 
 trailing_junk_tar)
