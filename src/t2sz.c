@@ -12,7 +12,7 @@
 ****************************************************************** */
 
 // 64-bit off_t also where it is 32 bits by default (Windows, 32-bit
-// glibc): lseek() must report the size of files of 2 GiB and more.
+// glibc): fstat() must report the size of files of 2 GiB and more.
 #define _FILE_OFFSET_BITS 64
 
 #include <stdio.h>
@@ -493,25 +493,22 @@ Context* newContext(){
 /**
  * Memory-map the input file for the mmap compression path.
  *
- * Opens the file read-only, determines its size via lseek, and maps it
- * into ctx->inBuff. Aborts on any I/O error or if the file is empty.
- * No-op when ctx->stdinMode is true (stdin is handled separately).
+ * Opens the file read-only and maps it into ctx->inBuff. Aborts if it
+ * cannot be opened, if it is a directory, or if it is an empty file in tar
+ * mode.
  *
- * If the input is not seekable (pipe, FIFO, or process substitution such
- * as bash's <(...)), or cannot be mapped (a file too large for the address
- * space of a 32-bit build), redirects the fd, rewound, to stdin via dup2()
- * and sets ctx->stdinMode = true so the caller falls through to the
- * streaming path.
+ * Only a regular file that reports a size is mapped. Anything else (a pipe,
+ * a FIFO, a process substitution such as bash's <(...), a character device
+ * such as /dev/urandom, a /proc file, which reports no size, or an empty
+ * file in raw mode), and a file that cannot be mapped (too large for the
+ * address space of a 32-bit build), is redirected to stdin via dup2(), and
+ * ctx->stdinMode = true makes the caller fall through to the streaming
+ * path.
  *
- * @param ctx  The compression context (reads inFilename, stdinMode;
+ * @param ctx  The compression context (reads inFilename, inBuff;
  *             writes inBuff, inBuffSize, stdinMode).
  */
 void prepareInput(Context *ctx){
-    if(ctx->stdinMode){
-        // The stdin path is handled by compressStdinRaw()/compressStdinTar().
-        return;
-    }
-
     // If the input buffer is already populated (e.g., by a fuzz harness
     // that injects data directly), skip file I/O entirely.
     if(ctx->inBuff){
@@ -524,14 +521,23 @@ void prepareInput(Context *ctx){
         exit(EXIT_FAILURE);
     }
 
-    const off_t end = lseek(fd, 0, SEEK_END);
-    if(end == 0){
+    struct stat st;
+    const bool statOk = fstat(fd, &st) == 0;
+    if(statOk && S_ISDIR(st.st_mode)){
+        fprintf(stderr, "ERROR: '%s' is a directory\n", ctx->inFilename);
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+    // An empty tar file has no entries: say so here, where its name is known,
+    // as the streaming path would only find an empty stdin. (A /proc file
+    // reports no size either, but it is no tar.)
+    if(statOk && S_ISREG(st.st_mode) && st.st_size == 0 && !ctx->rawMode){
         fprintf(stderr, "ERROR: Empty input file '%s'\n", ctx->inFilename);
         close(fd);
         exit(EXIT_FAILURE);
     }
-    if(end > 0 && (unsigned long long)end <= SIZE_MAX){
-        ctx->inBuffSize = (size_t)end;
+    if(statOk && S_ISREG(st.st_mode) && st.st_size > 0 && (unsigned long long)st.st_size <= SIZE_MAX){
+        ctx->inBuffSize = (size_t)st.st_size;
         ctx->inBuff = (uint8_t*)mmap(NULL, ctx->inBuffSize, PROT_READ, MAP_PRIVATE, fd, 0);
         if(ctx->inBuff != MAP_FAILED){
             close(fd);
@@ -540,10 +546,8 @@ void prepareInput(Context *ctx){
         ctx->inBuff = NULL;
     }
 
-    // Not seekable (pipe, FIFO, or process substitution), or too large to
-    // map: redirect it, from its start, to stdin so the streaming code path
-    // can handle it.
-    lseek(fd, 0, SEEK_SET);
+    // Not a regular file with a size, or one that cannot be mapped: redirect
+    // it to stdin so the streaming code path can handle it.
     if(fd != STDIN_FILENO){
         if(dup2(fd, STDIN_FILENO) < 0){
             fprintf(stderr, "ERROR: Unable to redirect '%s' to stdin\n",

@@ -203,6 +203,7 @@ add_error_test(err_partial_tail_block      partial_tail_block)
 add_error_test(err_stdin_truncated_payload stdin_truncated_payload)
 add_error_test(err_stdout_tar_file         stdout_tar_file)
 add_error_test(err_empty_file              empty_file)
+add_error_test(err_special_files           special_files)
 add_error_test(err_input_over_2gib         input_over_2gib)
 set_tests_properties(err_input_over_2gib PROPERTIES TIMEOUT 900)
 
