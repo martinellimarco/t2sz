@@ -20,6 +20,8 @@
 #   1  test failed
 
 set -uo pipefail
+# With pipefail, never end a pipe with 'grep -q': it can exit before the
+# writer is done, and the writer's SIGPIPE then fails the whole pipeline.
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -118,7 +120,7 @@ make_big_member_tar() {
     mkdir -p "$WORK/bigsrc"
     make_big_file "$WORK/bigsrc/big" "$size"
     flags="--format=$fmt"
-    if ! tar --version 2>/dev/null | grep -q 'GNU tar'; then
+    if ! tar --version 2>/dev/null | grep 'GNU tar' >/dev/null; then
         # bsdtar: GNU format has another name, and holes must be stored as
         # plain zeros, not as a sparse entry (GNU tar does that by default).
         [ "$fmt" = gnu ] && flags="--format=gnutar"
@@ -231,7 +233,7 @@ help_program_name)
     case "$out" in
         *'$s'*) log_fail "$TEST_NAME — help text shows a literal \$s"; exit 1 ;;
     esac
-    printf '%s\n' "$out" | grep -q '^Usage: .*t2sz' || {
+    printf '%s\n' "$out" | grep '^Usage: .*t2sz' >/dev/null || {
         log_fail "$TEST_NAME — no usage line with the program name"
         exit 1
     }
@@ -603,14 +605,14 @@ stdout_terminal)
     # explicit -o - should write there.
     make_small_dat "$WORK/in.dat"
     run_in_terminal '' sh -c "'$T2SZ' -r - < '$WORK/in.dat'"
-    if od -A n -t x1 "$WORK/tty.out" | tr -d ' \n' | grep -q 28b52ffd; then
+    if od -A n -t x1 "$WORK/tty.out" | tr -d ' \n' | grep 28b52ffd >/dev/null; then
         log_fail "$TEST_NAME — compressed bytes written to the terminal"
         exit 1
     fi
     [ "$RC" -ne 0 ] || { log_fail "$TEST_NAME — exit 0 without writing anything"; exit 1; }
     assert_rc 1
     run_in_terminal '' sh -c "'$T2SZ' -r -o - - < '$WORK/in.dat'"
-    od -A n -t x1 "$WORK/tty.out" | tr -d ' \n' | grep -q 28b52ffd || {
+    od -A n -t x1 "$WORK/tty.out" | tr -d ' \n' | grep 28b52ffd >/dev/null || {
         log_fail "$TEST_NAME — -o - did not write to the terminal"
         exit 1
     }
@@ -731,7 +733,7 @@ pax_header_own_frame)
     printf 'T2SZ-PAYLOAD\n' > "$WORK/src/$longname"
     for fmt in pax gnu; do
         flags="--format=$fmt"
-        if ! tar --version 2>/dev/null | grep -q 'GNU tar'; then
+        if ! tar --version 2>/dev/null | grep 'GNU tar' >/dev/null; then
             [ "$fmt" = gnu ] && flags="--format=gnutar"    # bsdtar
         fi
         COPYFILE_DISABLE=1 tar $flags -cf "$WORK/input.tar" -C "$WORK/src" "$longname" || {
@@ -1046,7 +1048,7 @@ gnu_sparse_extended)
     # (random data here, so it cannot pass for an end-of-archive block).
     GTAR=""
     for t in gtar tar; do
-        if command -v "$t" >/dev/null 2>&1 && "$t" --version 2>/dev/null | grep -q 'GNU tar'; then
+        if command -v "$t" >/dev/null 2>&1 && "$t" --version 2>/dev/null | grep 'GNU tar' >/dev/null; then
             GTAR="$t"
             break
         fi
