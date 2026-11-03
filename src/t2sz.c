@@ -1603,6 +1603,19 @@ static void removePartialOutputOnSignal(int sig){
 }
 
 int main(int argc, char **argv){
+    // If stderr is closed, the next open() reuses its descriptor: the output
+    // file would become stderr and every message would be written into the
+    // archive. Point stderr to /dev/null instead. A closed stdin or stdout
+    // stays closed, so that reading or writing it fails as it should.
+    struct stat st;
+    if(fstat(STDERR_FILENO, &st) != 0){
+        const int fd = open("/dev/null", O_WRONLY);
+        if(fd >= 0 && fd != STDERR_FILENO){
+            dup2(fd, STDERR_FILENO);
+            close(fd);
+        }
+    }
+
     Context *ctx = newContext();
     bool overwrite = false;
 
