@@ -41,4 +41,6 @@ package() {
         DESTDIR="$pkgdir" cmake --install build
 }
 
-sha512sums=""
+sha512sums="
+706cee1b975fca24be1598f8d7474f7bd5a7cf234582c2ebea986ce35e2791c098ca178f1054ce203d0c65107d2b50260bd621b0cc24805e1c8c407ecbc12274  t2sz-1.3.0.tar.gz
+"
