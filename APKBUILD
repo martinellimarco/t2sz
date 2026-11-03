@@ -1,7 +1,7 @@
 # Contributor: Marco Martinelli <marco+t2sz@13byte.com>
 # Maintainer: Marco Martinelli <marco+t2sz@13byte.com>
 pkgname=t2sz
-pkgver=1.2.5
+pkgver=1.3.0
 pkgrel=0
 pkgdesc="t2sz compresses a file into a seekable zstd with special handling for tar archives."
 url="https://github.com/martinellimarco/t2sz"
@@ -41,6 +41,4 @@ package() {
         DESTDIR="$pkgdir" cmake --install build
 }
 
-sha512sums="
-e2aa383d59c3b510e0f53e22a3a9941710472f1840859295a5d4ee181d8486a83029cfa1ef345d9bf6e44841d5cb16f9ffff5d00fd8a2ac4067d4f139cd2adf7  t2sz-1.2.5.tar.gz
-"
+sha512sums=""
