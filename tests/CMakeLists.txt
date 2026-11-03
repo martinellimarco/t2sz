@@ -205,6 +205,7 @@ add_error_test(err_stdin_raw_nonmultiple_s   stdin_raw_nonmultiple_s)
 
 # ── Tar trailing junk after end-of-archive ──────────────────────────────────
 add_error_test(err_trailing_junk_tar         trailing_junk_tar)
+add_error_test(err_maxblock_no_eoa           maxblock_no_eoa)
 
 # ── Non-regular tar entries (dirs, symlinks) ────────────────────────────────
 add_error_test(err_tar_with_dirs_symlinks    tar_with_dirs_symlinks)

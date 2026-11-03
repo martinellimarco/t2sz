@@ -643,6 +643,24 @@ trailing_junk_tar)
     log_pass "$TEST_NAME"
     ;;
 
+maxblock_no_eoa)
+    # A tar without the end-of-archive blocks whose last entry is larger than
+    # -S: the mmap loop stops when the parser reaches the end of the input,
+    # while the rest of the entry (the residual) is still waiting to be
+    # compressed. Exit 0, data lost.
+    head -c 5000 /dev/urandom > "$WORK/data.bin"
+    COPYFILE_DISABLE=1 tar --format=ustar -cf "$WORK/full.tar" -C "$WORK" data.bin || {
+        log_fail "$TEST_NAME — tar creation failed"
+        exit 1
+    }
+    head -c $(( 512 + 5120 )) "$WORK/full.tar" > "$WORK/noeoa.tar"   # header + padded payload
+    assert_exit 0  "$T2SZ" -S 1k -o "$WORK/mmap.zst" -f "$WORK/noeoa.tar"
+    assert_roundtrip "$WORK/mmap.zst" "$WORK/noeoa.tar"
+    assert_exit 0  "$T2SZ" -S 1k -o "$WORK/stdin.zst" -f - < "$WORK/noeoa.tar"
+    assert_roundtrip "$WORK/stdin.zst" "$WORK/noeoa.tar"
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── Non-regular tar entries (dirs, symlinks) ────────────────────────────────
 
 tar_with_dirs_symlinks)
