@@ -73,15 +73,12 @@ endif()
 target_include_directories(t2sz PRIVATE ${ZSTD_INC})
 target_link_libraries(t2sz ${ZSTD_LIB})
 
-if (CMAKE_BUILD_TYPE STREQUAL Release)
-    add_custom_command(TARGET t2sz POST_BUILD COMMAND ${CMAKE_STRIP} $<TARGET_FILE:t2sz>)
-endif ()
-
 install(TARGETS t2sz)
 
 #set(CPACK_SET_DESTDIR ON)
 #set(CPACK_GENERATOR "DEB;TGZ;RPM")
 set(CPACK_GENERATOR "DEB")
+set(CPACK_STRIP_FILES ON)   # strip the binary in the package, not in the build
 
 set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Marco Martinelli <marco+t2sz@13byte.com>")
