@@ -7,3 +7,4 @@ tests/blobs/
 tests/coverage/
 tests/cmake-build-*/
 cmake-build-*/
+snap/.snapcraft/
