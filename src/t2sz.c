@@ -11,6 +11,10 @@
  * file in the root directory of this source tree).
 ****************************************************************** */
 
+// 64-bit off_t also where it is 32 bits by default (Windows, 32-bit
+// glibc): lseek() must report the size of files of 2 GiB and more.
+#define _FILE_OFFSET_BITS 64
+
 #include <stdio.h>
 #include <getopt.h>
 #include <stdlib.h>
@@ -112,17 +116,19 @@ bool isTarHeader(const TarHeader* header){
  *
  * The size field is a fixed 12-byte array that is not guaranteed to be
  * NUL-terminated for malformed inputs. This function copies it into a
- * local buffer and NUL-terminates before calling strtoul, matching the
+ * local buffer and NUL-terminates before calling strtoull, matching the
  * defensive pattern already used in isTarHeader() for the checksum field.
+ * strtoull, not strtoul: where long is 32 bits (Windows, 32-bit systems)
+ * strtoul cannot return the size of an entry of 4 GiB or more.
  *
  * @param header  Pointer to the tar header.
  * @return        Parsed file size in bytes.
  */
-static size_t parseTarSize(const TarHeader *header){
+static uint64_t parseTarSize(const TarHeader *header){
     char buf[13];
     memcpy(buf, header->size, 12);
     buf[12] = '\0';
-    return (size_t)strtoul(buf, NULL, 8);
+    return strtoull(buf, NULL, 8);
 }
 
 /**
@@ -1004,34 +1010,34 @@ static void compressStdinTar(Context *ctx){
             exit(EXIT_FAILURE);
         }
 
-        const size_t fileSize = parseTarSize(header);
-        if(fileSize > SIZE_MAX - 1024){
+        const uint64_t fileSize = parseTarSize(header);
+        if(fileSize > UINT64_MAX - 1024){
             fprintf(stderr, "ERROR: Invalid tar entry size (too large)\n");
             free(chunkBuf);
             exit(EXIT_FAILURE);
         }
 
         // pad to 512
-        size_t padded = fileSize;
-        const size_t mod = padded % 512;
+        uint64_t padded = fileSize;
+        const uint64_t mod = padded % 512;
         if(mod) padded = padded - mod + 512;
 
         // Header is valid — include the 512-byte block in the stream. An
         // extended header shares the frame of the next entry: no known size.
         if(!isExtensionHeader(header)){
-            startElementFrame(ctx, 512 + (uint64_t)padded, &frameIn, &frameOut, &frameOpen);
+            startElementFrame(ctx, 512 + padded, &frameIn, &frameOut, &frameOpen);
         }
         pushBytesTar(ctx, hdrBlock, 512, &frameIn, &frameOut, &frameOpen);
 
         if(ctx->verbose){
-            fprintf(stderr, "+ %.100s (%zu)\n", header->name, padded);
+            fprintf(stderr, "+ %.100s (%llu)\n", header->name, (unsigned long long)padded);
         }
 
         // Stream payload+pads: read exactly 'padded' bytes from stdin, push through compressor,
         // respecting maxBlockSize splitting.
-        size_t remaining = padded;
+        uint64_t remaining = padded;
         while(remaining > 0){
-            const size_t take = remaining > inChunk ? inChunk : remaining;
+            const size_t take = remaining > inChunk ? inChunk : (size_t)remaining;
             readExactStdin(chunkBuf, take);
             pushBytesTar(ctx, chunkBuf, take, &frameIn, &frameOut, &frameOpen);
             remaining -= take;
@@ -1201,11 +1207,12 @@ void compressFile(Context *ctx){
                     }else if(!isZeroTarBlock(&ctx->inBuff[tarHeaderIdx])){//tar ends with null headers that we can skip
                         TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
                         if(isTarHeader(header)){
-                            size_t size = parseTarSize(header);
-                            if(size > SIZE_MAX - 1024){
+                            const uint64_t entrySize = parseTarSize(header);
+                            if(entrySize > SIZE_MAX - 1024){
                                 fprintf(stderr, "ERROR: Invalid tar entry size (too large)\n");
                                 exit(EXIT_FAILURE);
                             }
+                            size_t size = (size_t)entrySize;
 
                             const size_t mod = size%512;
                             if(mod){

@@ -227,6 +227,8 @@ add_error_test(err_bad_threads_strtol        bad_threads_strtol)
 
 # ── Unknown option — getopt default case ────────────────────────────────────
 add_error_test(err_unknown_option            unknown_option)
+add_error_test(err_ustar_size_over_4gib      ustar_size_over_4gib)
+set_tests_properties(err_ustar_size_over_4gib PROPERTIES TIMEOUT 900)
 
 # ── decodeMultiplier extra suffixes (K/KiB/MiB/G) ─────────────────────────
 add_error_test(err_multiplier_suffixes_extra multiplier_suffixes_extra)
