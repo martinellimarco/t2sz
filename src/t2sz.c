@@ -16,9 +16,11 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <signal.h>
 #include <string.h>
 #include <math.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <errno.h>
 
 #ifdef _WIN32
@@ -436,12 +438,21 @@ void prepareInput(Context *ctx){
     close(fd);
 }
 
+/* The output file of the run in progress, from the moment it is created
+ * until it is complete: main() removes it if the run fails, so that no
+ * partial archive is left under the final name. partialFile is the stream
+ * still to close first (Windows cannot remove an open file). */
+static const char *volatile partialOutput;
+static FILE *partialFile;
+
 /**
  * Open the output destination and allocate the output buffer.
  *
  * If stdoutMode is true, uses stdout directly; otherwise opens
- * ctx->outFilename for writing. Allocates an output buffer sized
- * by ZSTD_CStreamOutSize(). Aborts on fopen or OOM failure.
+ * ctx->outFilename for writing and, if it is a regular file (new or
+ * replaced), records it as partialOutput.
+ * Allocates an output buffer sized by ZSTD_CStreamOutSize().
+ * Aborts on fopen or OOM failure.
  *
  * @param ctx  The compression context (reads outFilename, stdoutMode;
  *             writes outFile, outBuff, outBuffSize).
@@ -450,10 +461,22 @@ void prepareOutput(Context *ctx){
     if(ctx->stdoutMode){
         ctx->outFile = stdout;
     }else{
+        // A failed run removes the output only if it is a regular file: not
+        // a symbolic link, a FIFO or a device that -o names.
+        struct stat st;
+#ifdef _WIN32
+        const bool regular = stat(ctx->outFilename, &st) != 0 || S_ISREG(st.st_mode);
+#else
+        const bool regular = lstat(ctx->outFilename, &st) != 0 || S_ISREG(st.st_mode);
+#endif
         ctx->outFile = fopen(ctx->outFilename, "wb");
         if(!ctx->outFile){
             fprintf(stderr, "ERROR: Cannot open output file for writing\n");
             exit(EXIT_FAILURE);
+        }
+        if(regular){
+            partialOutput = ctx->outFilename;
+            partialFile = ctx->outFile;
         }
     }
     ctx->outBuffSize = ZSTD_CStreamOutSize();
@@ -1016,7 +1039,8 @@ static void cleanupCompression(Context *ctx){
     free(ctx->seekTable);      ctx->seekTable = NULL;
     ZSTD_freeCCtx(ctx->cctx);  ctx->cctx = NULL;
     // The last buffered bytes are written only now: a failure here leaves
-    // a truncated archive.
+    // a truncated archive. fclose() closes the stream even when it fails.
+    partialFile = NULL;
     if((ctx->stdoutMode ? fflush(ctx->outFile) : fclose(ctx->outFile)) != 0){
         fprintf(stderr, "ERROR: Failed to write output: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
@@ -1552,6 +1576,32 @@ static void parseArgs(int argc, char **argv, Context *ctx, bool *overwrite){
  * @return      EXIT_SUCCESS on success, EXIT_FAILURE on error.
  */
 #ifndef T2SZ_NO_MAIN
+/**
+ * atexit() handler: remove the output of a run that did not complete.
+ */
+static void removePartialOutput(void){
+    if(partialOutput){
+        if(partialFile){
+            fclose(partialFile);
+        }
+        remove(partialOutput);
+    }
+}
+
+/**
+ * Handler of SIGINT and SIGTERM, which end the run without atexit(): remove
+ * the output, with unlink(), safe in a signal handler unlike fclose() and
+ * remove(), then die of the same signal. Windows, which cannot remove an
+ * open file, keeps it.
+ */
+static void removePartialOutputOnSignal(int sig){
+    if(partialOutput){
+        unlink(partialOutput);
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
 int main(int argc, char **argv){
     Context *ctx = newContext();
     bool overwrite = false;
@@ -1599,7 +1649,17 @@ int main(int argc, char **argv){
         }
     }
 
+    atexit(removePartialOutput);
+    // Unless the signal is ignored, as SIGINT is for a job that a script
+    // starts with &.
+    if(signal(SIGINT, removePartialOutputOnSignal) == SIG_IGN){
+        signal(SIGINT, SIG_IGN);
+    }
+    if(signal(SIGTERM, removePartialOutputOnSignal) == SIG_IGN){
+        signal(SIGTERM, SIG_IGN);
+    }
     compressFile(ctx);
+    partialOutput = NULL; // complete: keep it
 
     free(outFilenameToFree);
     free(ctx);

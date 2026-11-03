@@ -424,6 +424,47 @@ stdin_corrupt_tar)
     log_pass "$TEST_NAME"
     ;;
 
+failed_run_leaves_output)
+    # A run that fails half way leaves the frames written so far under the
+    # final name: a valid zstd stream holding only part of the input.
+    printf 'first\n' > "$WORK/a.txt"
+    printf 'second\n' > "$WORK/b.txt"
+    COPYFILE_DISABLE=1 tar --format=ustar -cf "$WORK/bad.tar" -C "$WORK" a.txt b.txt || {
+        log_fail "$TEST_NAME — tar creation failed"
+        exit 1
+    }
+    # Corrupt the checksum of the second header (offset 1024).
+    printf '\xff\xff\xff\xff\xff\xff\xff\xff' \
+        | dd of="$WORK/bad.tar" bs=1 seek=$(( 1024 + 148 )) count=8 conv=notrunc 2>/dev/null
+    assert_nonzero  "$T2SZ" -o "$WORK/out.zst" "$WORK/bad.tar"
+    [ ! -e "$WORK/out.zst" ] || {
+        log_fail "$TEST_NAME — failed run left out.zst ($(wc -c < "$WORK/out.zst" | tr -d ' ') bytes)"
+        exit 1
+    }
+    # Only a regular file is removed: removing an output that is a symbolic
+    # link would remove the link, not its target (Windows: no lstat()).
+    if ! is_windows && ln -s target.zst "$WORK/link.zst" && [ -L "$WORK/link.zst" ]; then
+        assert_nonzero  "$T2SZ" -f -o "$WORK/link.zst" "$WORK/bad.tar"
+        [ -L "$WORK/link.zst" ] || { log_fail "$TEST_NAME — failed run removed the symbolic link link.zst"; exit 1; }
+    fi
+    # A run ended by a signal (Ctrl-C, kill) removes its output too: here
+    # SIGTERM, while t2sz waits for more input from a FIFO.
+    if ! is_windows; then
+        mkfifo "$WORK/in.fifo"
+        "$T2SZ" -r -f -o "$WORK/killed.zst" - < "$WORK/in.fifo" 2>/dev/null &
+        pid=$!
+        exec 3> "$WORK/in.fifo"
+        printf 'partial input' >&3
+        n=0
+        while [ ! -e "$WORK/killed.zst" ] && [ "$n" -lt 50 ]; do sleep 0.1; n=$((n + 1)); done
+        kill -TERM "$pid"
+        wait "$pid"
+        exec 3>&-
+        [ ! -e "$WORK/killed.zst" ] || { log_fail "$TEST_NAME — run ended by SIGTERM left killed.zst"; exit 1; }
+    fi
+    log_pass "$TEST_NAME"
+    ;;
+
 stdin_empty_tar)
     # Empty tar (tar with zero-byte file) via stdin — exercises isZeroTarBlock().
     # Like the mmap empty_tar test it must compress and round-trip.
