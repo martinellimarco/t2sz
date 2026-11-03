@@ -11,9 +11,9 @@ If the file is a tar archive it compresses each file in the archive into an inde
 
 It operates in two modes. Tar archive mode and raw mode.
 
-By default it runs in tar archive mode for files ending with `.tar`, unless `-r` is specified.
+By default it runs in tar archive mode for files ending with `.tar` or `.gtar` (in any case) and for standard input, unless `-r` is specified.
 
-For all other files it runs in raw mode.
+For all other files it runs in raw mode, named pipes and process substitutions included: to compress a tar from a pipe, read it from standard input (`t2sz - < fifo`).
 
 In tar archive mode it compresses the archive keeping each file in a different frame, unless `-s` or `-S` is used.
 

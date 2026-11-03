@@ -26,6 +26,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <ctype.h>
 
 #ifdef _WIN32
 #include <io.h>
@@ -1561,8 +1562,9 @@ void usage(const char *name, const char *str){
             "It compresses a file into a seekable zstd, splitting the file into multiple frames.\n"
             "If the file is a tar archive it compresses each file in the archive into an independent frame, hence the name.\n"
             "It operates in two modes. Tar archive mode and raw mode.\n"
-            "By default it runs in tar archive mode for files ending with .tar, unless -r is specified.\n"
-            "For all other files it runs in raw mode.\n"
+            "By default it runs in tar archive mode for files ending with .tar or .gtar (in any case) and for standard input,\n"
+            "unless -r is specified. For all other files it runs in raw mode, named pipes and process substitutions\n"
+            "included: to compress a tar from a pipe, read it from standard input (t2sz - < fifo).\n"
             "In tar archive mode it compresses the archive keeping each file in a different frame, unless -s or -S is used.\n"
             "This allows fast seeking and extraction of a single file without decompressing the whole archive.\n"
             "The compressed archive can be decompressed with any Zstandard tool, including zstd.\n"
@@ -1628,17 +1630,27 @@ void usage(const char *name, const char *str){
 }
 
 /**
- * Test whether a string ends with the given suffix.
+ * Test whether a string ends with the given suffix, ignoring case
+ * (ARCHIVE.TAR is as much a tar archive as archive.tar).
  *
  * @param str  The string to inspect.
  * @param suf  The suffix to look for.
- * @return     true if @p str ends with @p suf (case-sensitive).
+ * @return     true if @p str ends with @p suf, in any case.
  */
 bool strEndsWith(const char * str, const char * suf){
     const size_t strLen = strlen(str);
     const size_t sufLen = strlen(suf);
+    if(strLen < sufLen){
+        return false;
+    }
 
-    return (strLen >= sufLen) && (0 == strcmp(str + (strLen - sufLen), suf));
+    str += strLen - sufLen;
+    for(size_t i = 0; i < sufLen; i++){
+        if(tolower((unsigned char)str[i]) != tolower((unsigned char)suf[i])){
+            return false;
+        }
+    }
+    return true;
 }
 
 /**
@@ -1834,7 +1846,7 @@ static void parseArgs(int argc, char **argv, Context *ctx, bool *overwrite){
     // When reading from stdin there is no filename to inspect; the user must
     // pass -r explicitly if raw mode is desired (default: tar mode).
     if(!ctx->rawMode && !ctx->stdinMode){
-        ctx->rawMode = !strEndsWith(ctx->inFilename, ".tar");
+        ctx->rawMode = !strEndsWith(ctx->inFilename, ".tar") && !strEndsWith(ctx->inFilename, ".gtar");
     }
 }
 

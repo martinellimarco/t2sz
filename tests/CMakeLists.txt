@@ -152,6 +152,7 @@ add_error_test(err_git_archive_checksum git_archive_checksum)
 
 # ── Auto raw-mode detection — strEndsWith() branch in main() ─────────────────
 add_error_test(err_auto_raw          auto_raw)
+add_error_test(err_tar_suffixes      tar_suffixes)
 
 # ── Default output filename — getOutFilename() called when -o is omitted ──────
 add_error_test(err_auto_outname      auto_outname)
