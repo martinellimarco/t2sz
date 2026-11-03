@@ -1467,6 +1467,45 @@ void compressFile(Context *ctx){
 }
 
 /**
+ * Test whether the output file is the input: the same file under another
+ * spelling of its path or as a hard link, or the file redirected to stdin.
+ * Writing the output would truncate it before it is read.
+ *
+ * On Windows, which refuses to truncate the file mapped as input, only
+ * stdin needs the check; there are no inodes, so files are compared by
+ * volume serial number and file index.
+ *
+ * @param ctx  The compression context (reads outFilename, inFilename,
+ *             stdinMode).
+ * @return     true if writing the output would overwrite the input.
+ */
+bool outputIsInput(const Context *ctx){
+#ifdef _WIN32
+    if(!ctx->stdinMode){
+        return false;
+    }
+    const HANDLE h = CreateFileA(ctx->outFilename, 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                 NULL, OPEN_EXISTING, 0, NULL);
+    if(h == INVALID_HANDLE_VALUE){
+        return false;
+    }
+    BY_HANDLE_FILE_INFORMATION in, out;
+    const bool same = GetFileInformationByHandle(h, &out)
+                   && GetFileInformationByHandle((HANDLE)_get_osfhandle(STDIN_FILENO), &in)
+                   && in.dwVolumeSerialNumber == out.dwVolumeSerialNumber
+                   && in.nFileIndexHigh == out.nFileIndexHigh
+                   && in.nFileIndexLow == out.nFileIndexLow;
+    CloseHandle(h);
+    return same;
+#else
+    struct stat in, out;
+    return stat(ctx->outFilename, &out) == 0
+        && (ctx->stdinMode ? fstat(STDIN_FILENO, &in) : stat(ctx->inFilename, &in)) == 0
+        && in.st_dev == out.st_dev && in.st_ino == out.st_ino;
+#endif
+}
+
+/**
  * Derive the default output filename by appending ".zst" to the input name.
  *
  * Allocates a new string on the heap. Caller must free().
@@ -1881,6 +1920,13 @@ int main(int argc, char **argv){
     }else if(strcmp(ctx->outFilename, "-") == 0){
         // -o - explicitly requested: write to stdout.
         ctx->stdoutMode = true;
+    }
+
+    if(!ctx->stdoutMode && outputIsInput(ctx)){
+        fprintf(stderr, "ERROR: %s is the input itself. Choose another output file.\n", ctx->outFilename);
+        free(outFilenameToFree);
+        free(ctx);
+        return EXIT_FAILURE;
     }
 
     // Overwrite prompt — skipped when writing to stdout (nothing to overwrite).

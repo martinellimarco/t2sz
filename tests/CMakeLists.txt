@@ -135,6 +135,7 @@ add_error_test(err_version           version)
 
 # ── File-system error paths ────────────────────────────────────────────────────
 add_error_test(err_file_not_found    file_not_found)
+add_error_test(err_output_is_input   output_is_input)
 add_error_test(err_output_bad_path   output_bad_path)
 add_error_test(err_close_error_exit  close_error_exit)
 
