@@ -142,6 +142,7 @@ add_error_test(err_overwrite_yes     overwrite_yes)
 
 # ── Corrupted tar — isTarHeader() checksum-mismatch error path ────────────────
 add_error_test(err_corrupt_tar       corrupt_tar)
+add_error_test(err_git_archive_checksum git_archive_checksum)
 
 # ── Auto raw-mode detection — strEndsWith() branch in main() ─────────────────
 add_error_test(err_auto_raw          auto_raw)

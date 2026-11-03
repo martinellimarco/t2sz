@@ -80,9 +80,11 @@ uint32_t checksum(const TarHeader* header){
  * Validate a tar header by comparing its stored checksum against the
  * computed one.
  *
- * Extracts the 6-byte octal string from header->chksum, converts it
- * with strtoul, and compares to checksum(). Prints a diagnostic on
- * mismatch.
+ * Converts the octal number in the 8-byte header->chksum field with
+ * strtoul, and compares it to checksum(). The whole field is read:
+ * POSIX writes 6 digits, a NUL and a space, but git archive (and so every
+ * GitHub source tarball) writes 7 digits and a NUL. Prints a diagnostic
+ * on mismatch.
  *
  * @param header  Pointer to the tar header to validate.
  * @return        true if the checksum matches, false otherwise.
@@ -90,9 +92,9 @@ uint32_t checksum(const TarHeader* header){
 bool isTarHeader(const TarHeader* header){
     const uint32_t chksum = checksum(header);
 
-    char buf[7];
-    memcpy(buf, header->chksum, 6);
-    buf[6] = 0;
+    char buf[9];
+    memcpy(buf, header->chksum, 8);
+    buf[8] = 0;
     const uint32_t hdrChksum = strtoul(buf, NULL, 8);
 
     if(chksum != hdrChksum){
