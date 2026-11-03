@@ -190,8 +190,18 @@ echo "  CTest — full test suite (${ARCH} via Wine)"
 echo "====================================================="
 
 cd "$BUILD_DIR"
+# One wineserver for all the tests: the one each wine call starts on its own
+# exits 3 s after its last client, and a test that connects right then fails
+# with "recvmsg: Connection reset by peer". -w waits for the one started above.
+# Wine's system processes inherit the stderr of the call that starts them and
+# stay as long as a persistent server does: start them here, not in a test,
+# or ctest waits for that test's output until the timeout.
+wineserver -w
+wineserver -p
+timeout 60 env WINEDEBUG=-all $WINE cmd /c exit > /dev/null 2>&1 < /dev/null || true
 CTEST_RC=0
 ctest --output-on-failure -j"${CTEST_JOBS:-4}" ${CTEST_EXTRA_ARGS:-} || CTEST_RC=$?
+wineserver -k || true
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Coverage report (LLVM source-based)
