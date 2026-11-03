@@ -1225,10 +1225,10 @@ bad_threads_strtol)
     log_pass "$TEST_NAME"
     ;;
 
-# ── Unknown option — getopt '?' → switch default case ──────────────────────
+# ── Unknown option — getopt '?' ──────────────────────────────────────────────
 
 unknown_option)
-    # Unrecognized option -Z triggers getopt '?' → switch default case.
+    # Unrecognized option -Z makes getopt return '?'.
     # usage(executable, "ERROR: Unknown option") exits with EXIT_FAILURE (1).
     assert_rejected -Z
     log_pass "$TEST_NAME"

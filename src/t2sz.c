@@ -22,7 +22,6 @@
 #include <stdbool.h>
 #include <signal.h>
 #include <string.h>
-#include <math.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <errno.h>
@@ -283,21 +282,12 @@ typedef struct {
     size_t frameCount; //frames written, counted with or without a seek table
 } Context;
 
-/* Compile-time endianness detection.  GCC/Clang define __BYTE_ORDER__
- * and __ORDER_LITTLE_ENDIAN__; MSVC is always little-endian on supported
- * architectures.  If none of the macros are available the runtime
- * fallback is used (no volatile — the result is constant). */
-#if defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__)
-#define IS_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
-#elif defined(_WIN32)
-#define IS_LITTLE_ENDIAN 1
-#else
-static inline bool isLittleEndian(void){
-    const int x = 1;
-    return *(const char*)(&x) == 1;
-}
-#define IS_LITTLE_ENDIAN isLittleEndian()
+/* Compile-time endianness detection: GCC and Clang, the compilers that
+ * build t2sz (MSVC lacks getopt.h), define __BYTE_ORDER__. */
+#if !defined(__BYTE_ORDER__) || !defined(__ORDER_LITTLE_ENDIAN__)
+#error "Unknown byte order: build t2sz with GCC or Clang"
 #endif
+#define IS_LITTLE_ENDIAN (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
 
 /**
  * Write a 32-bit unsigned integer to memory in little-endian byte order.
@@ -634,8 +624,6 @@ void prepareCctx(Context *ctx){
         err = ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, (int32_t)ctx->workers);
         if(ZSTD_isError(err)){
             fprintf(stderr, "ERROR: Multi-thread is supported only with libzstd >= 1.5.0 or on older versions compiled with ZSTD_MULTITHREAD. Reverting to single-thread.\n");
-            ctx->workers = 0;
-            ZSTD_CCtx_setParameter(ctx->cctx, ZSTD_c_nbWorkers, (int32_t)ctx->workers);
         }
     }
 }
@@ -976,11 +964,6 @@ static void pushBytesTar(Context *ctx, const uint8_t *src, const size_t n, uint6
         // If maxBlockSize is set, never exceed it.
         size_t canWrite = n - off;
         if(ctx->maxBlockSize){
-            if(*frameIn >= ctx->maxBlockSize){
-                // current frame full -> close and open next
-                endFrameAndRecord(ctx, *frameIn, *frameOut, frameOpen);
-                continue;
-            }
             const size_t left = ctx->maxBlockSize - (size_t)(*frameIn);
             if(canWrite > left) canWrite = left;
         }
@@ -1405,33 +1388,11 @@ void compressFile(Context *ctx){
                 }while(!lastChunk && !residual && (blockSize < ctx->minBlockSize || joinNext));
             }
 
-            zstdResetFrame(ctx);
-            zstdSetPledged(ctx, blockSize, true);
             if(ctx->verbose){
                 fprintf(stderr, "# END OF BLOCK (%zu, %zu)\n\n", blockSize, tarHeaderIdx);
             }
 
-            if(readBuff+blockSize > ctx->inBuff+ctx->inBuffSize){
-                fprintf(stderr, "ERROR: Malformed or truncated tar archive (block extends past end of input)\n");
-                exit(EXIT_FAILURE);
-            }
-
-            ZSTD_inBuffer input = {readBuff, blockSize, 0 };
-            size_t remaining;
-            ZSTD_EndDirective mode;
-            uint64_t compressedSize = 0;
-            do{
-                ZSTD_outBuffer output = {ctx->outBuff, ctx->outBuffSize, 0 };
-                mode = input.pos < input.size ? ZSTD_e_continue : ZSTD_e_end;
-                remaining = ZSTD_compressStream2(ctx->cctx, &output , &input, mode);
-                if(ZSTD_isError(remaining)){
-                    fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(remaining));
-                    exit(EXIT_FAILURE);
-                }
-                compressedSize += checkedFwrite(ctx->outBuff, output.pos, ctx->outFile);
-            }while(mode==ZSTD_e_continue || remaining>0);
-
-            seekTableAdd(ctx, compressedSize, blockSize);
+            seekTableAdd(ctx, zstdCompressBufferToFrame(ctx, readBuff, blockSize), blockSize);
 
             readBuff += blockSize;
         }
@@ -1801,9 +1762,6 @@ static void parseArgs(int argc, char **argv, Context *ctx, bool *overwrite){
                 }
                 break;
             }
-            default:
-                usage(executable, "ERROR: Unknown option");
-                break;
         }
     }
     argc -= optind;
