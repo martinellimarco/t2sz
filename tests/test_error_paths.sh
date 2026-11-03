@@ -544,6 +544,27 @@ stdin_file_stdout)
     log_pass "$TEST_NAME"
     ;;
 
+stdout_terminal)
+    # Without -o, input from stdin is written to stdout. When that is a
+    # terminal the compressed bytes are of no use (the terminal even adds a
+    # CR before each LF), so zstd, gzip, xz and the like refuse; only an
+    # explicit -o - should write there.
+    make_small_dat "$WORK/in.dat"
+    run_in_terminal '' sh -c "'$T2SZ' -r - < '$WORK/in.dat'"
+    if od -A n -t x1 "$WORK/tty.out" | tr -d ' \n' | grep -q 28b52ffd; then
+        log_fail "$TEST_NAME — compressed bytes written to the terminal"
+        exit 1
+    fi
+    [ "$RC" -ne 0 ] || { log_fail "$TEST_NAME — exit 0 without writing anything"; exit 1; }
+    assert_rc 1
+    run_in_terminal '' sh -c "'$T2SZ' -r -o - - < '$WORK/in.dat'"
+    od -A n -t x1 "$WORK/tty.out" | tr -d ' \n' | grep -q 28b52ffd || {
+        log_fail "$TEST_NAME — -o - did not write to the terminal"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── Stdin streaming error paths ──────────────────────────────────────────────
 
 stdin_corrupt_tar)
