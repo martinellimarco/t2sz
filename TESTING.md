@@ -165,7 +165,7 @@ The uncovered lines consist of defensive error-handling branches that cannot be
 reached without hardware or environment conditions outside normal test execution:
 
 - **Big-endian path in `writeLE32`** — x86-64 and ARM64 are always little-endian.
-- **`prepareInput` I/O failures** — `open()` after a successful `access()` (TOCTOU race); `mmap()` failure requires OS-level fault injection.
+- **`prepareInput` I/O failures** — `open()` after a successful `access()` (TOCTOU race), or `dup2()` failing on a valid descriptor.
 - **`prepareCctx` failures** — `ZSTD_createCCtx()` returning NULL requires memory exhaustion; parameter errors require a broken libzstd build.
 - **`compressFile` fatal paths** — "This is a bug" branch is structurally unreachable; `ZSTD_compressStream2` error requires a corrupt compression context.
 - **`seekTableAdd` overflow guards** — triggered only by > 134 million frames or a single block > 2 GB.
