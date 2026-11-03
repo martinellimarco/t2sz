@@ -22,7 +22,9 @@ endif()
 
 if(SANITIZE)
     message(STATUS "t2sz: building with ASAN + UBSAN")
-    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g -O1)
+    # -fno-sanitize-recover: undefined behaviour stops the program (and fails
+    # the test) instead of printing a warning and going on.
+    add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -g -O1)
     add_link_options(-fsanitize=address,undefined)
 endif()
 

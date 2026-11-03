@@ -63,13 +63,10 @@ assert_exit() {
     assert_rc "$expected"
 }
 
-# Run a command and assert it exits with any non-zero code.
+# Run a command and assert it fails the way t2sz fails: with EXIT_FAILURE (1).
+# Any other non-zero code is a crash: a signal, or a sanitizer error (66).
 assert_nonzero() {
-    run "$@"
-    if [ "$RC" -eq 0 ]; then
-        log_fail "$TEST_NAME — expected non-zero exit, got 0: $*"
-        exit 1
-    fi
+    assert_exit 1 "$@"
 }
 
 # Create a minimal valid single-file tar archive at the given path.
@@ -378,19 +375,15 @@ stdin_corrupt_tar)
 
 stdin_empty_tar)
     # Empty tar (tar with zero-byte file) via stdin — exercises isZeroTarBlock().
-    # Must not crash. Non-zero exit is acceptable (like the mmap empty_tar test).
+    # Like the mmap empty_tar test it must compress and round-trip.
     touch "$WORK/empty"
     (cd "$WORK" && COPYFILE_DISABLE=1 tar cf empty.tar empty) || {
         log_fail "$TEST_NAME — tar creation failed"
         exit 1
     }
-    RC=0
-    "$T2SZ" -o "$WORK/out.zst" -f - < "$WORK/empty.tar" 2>/dev/null || RC=$?
-    if [ "$RC" -gt 128 ]; then
-        log_fail "$TEST_NAME — killed by signal $(( RC - 128 ))"
-        exit 1
-    fi
-    log_pass "$TEST_NAME — exited $RC (no crash)"
+    assert_exit 0  "$T2SZ" -o "$WORK/out.zst" -f - < "$WORK/empty.tar"
+    assert_roundtrip "$WORK/out.zst" "$WORK/empty.tar"
+    log_pass "$TEST_NAME"
     ;;
 
 stdin_truncated_tar)
@@ -493,29 +486,18 @@ stdin_raw_nonmultiple_s)
 trailing_junk_tar)
     # Create a valid tar, then append 1024 bytes of non-zero junk (0xAA) after
     # the end-of-archive blocks. Both mmap and stdin paths read until EOF, so
-    # both will encounter the junk, fail isTarHeader(), and exit non-zero.
-    # The test verifies neither path crashes (no signal kill).
+    # both will encounter the junk, fail isTarHeader(), and exit 1 (a crash,
+    # or a sanitizer error, would exit otherwise).
     make_small_tar "$WORK/good.tar"
     cp "$WORK/good.tar" "$WORK/junk.tar"
     dd if=/dev/zero bs=1 count=1024 2>/dev/null | tr '\0' '\252' >> "$WORK/junk.tar"
 
-    # mmap path: must not crash (exit non-zero is expected)
     RC=0
     "$T2SZ" -o "$WORK/out_mmap.zst" -f "$WORK/junk.tar" 2>/dev/null || RC=$?
-    if [ "$RC" -gt 128 ]; then
-        log_fail "$TEST_NAME — mmap path killed by signal $(( RC - 128 ))"
-        exit 1
-    fi
-    log_step "mmap path exited $RC (no crash)"
-
-    # stdin path: must not crash (exit non-zero is expected)
+    assert_rc 1
     RC=0
     "$T2SZ" -o "$WORK/out_stdin.zst" -f - < "$WORK/junk.tar" 2>/dev/null || RC=$?
-    if [ "$RC" -gt 128 ]; then
-        log_fail "$TEST_NAME — stdin path killed by signal $(( RC - 128 ))"
-        exit 1
-    fi
-    log_step "stdin path exited $RC (no crash)"
+    assert_rc 1
 
     log_pass "$TEST_NAME"
     ;;

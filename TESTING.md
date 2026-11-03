@@ -55,10 +55,12 @@ cd build && ctest --output-on-failure -j4
 
 ### ASAN + UBSan (memory safety)
 
-Compiles with `-fsanitize=address,undefined`. Any memory violation or
-undefined behaviour causes the affected test to fail with a detailed report
-on stderr. On Linux, LeakSanitizer is also enabled (`detect_leaks=1`); on
-macOS Apple Silicon it is omitted as LSAN is not supported there.
+Compiles with `-fsanitize=address,undefined -fno-sanitize-recover=undefined`.
+Any memory violation or undefined behaviour stops t2sz with a detailed report
+on stderr and exit code 66, which no test accepts (t2sz itself fails with 1),
+so the affected test fails. On Linux, LeakSanitizer is also enabled
+(`detect_leaks=1`); on macOS Apple Silicon it is omitted as LSAN is not
+supported there.
 
 ```bash
 cmake -B build_asan -DBUILD_TESTS=ON -DSANITIZE=ON

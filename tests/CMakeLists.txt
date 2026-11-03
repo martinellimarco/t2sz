@@ -59,15 +59,18 @@ function(set_test_env name)
         set_tests_properties(${name} PROPERTIES ENVIRONMENT "${PROF_ENV}")
     endif()
     if(SANITIZE)
+        # A sanitizer error exits with 66, which no test accepts: t2sz's own
+        # failures exit with 1, and the default 1 would pass for one of them.
+        set(UBSAN_ENV "UBSAN_OPTIONS=print_stacktrace=1:exitcode=66")
         if(APPLE)
             # LeakSanitizer (LSAN) is not supported on macOS Apple Silicon.
             # detect_leaks=1 would cause an immediate abort — omit it here.
             set_tests_properties(${name} PROPERTIES
-                ENVIRONMENT "ASAN_OPTIONS=halt_on_error=1:print_stats=1")
+                ENVIRONMENT "ASAN_OPTIONS=halt_on_error=1:print_stats=1:exitcode=66;${UBSAN_ENV}")
         else()
             # All memory leaks in t2sz.c have been fixed; no LSAN suppressions needed.
             set_tests_properties(${name} PROPERTIES
-                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:print_stats=1")
+                ENVIRONMENT "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:print_stats=1:exitcode=66;${UBSAN_ENV}")
         endif()
     endif()
 endfunction()
