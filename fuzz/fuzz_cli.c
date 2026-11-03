@@ -117,21 +117,13 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 #endif
     opterr = 0;  /* suppress getopt's own error messages */
 
-    /* Suppress stderr noise from usage() / version() / error messages. */
-    int saved_stderr = dup(STDERR_FILENO);
-    int devnull = open("/dev/null", O_WRONLY);
-    if (devnull >= 0) {
-        dup2(devnull, STDERR_FILENO);
-        close(devnull);
-    }
-
-    /* Also suppress stdout for version() / usage() output. */
-    int saved_stdout = dup(STDOUT_FILENO);
-    int devnull2 = open("/dev/null", O_WRONLY);
-    if (devnull2 >= 0) {
-        dup2(devnull2, STDOUT_FILENO);
-        close(devnull2);
-    }
+    /* Silence usage(), version() and error messages through the stdio FILEs,
+     * not file descriptors 1 and 2: the sanitizers and libFuzzer write their
+     * reports to descriptor 2. */
+    FILE *devnull = fopen("/dev/null", "w");
+    if (!devnull) abort();
+    FILE *saved_stderr = stderr, *saved_stdout = stdout;
+    stderr = stdout = devnull;
 
     /* Call parseArgs() — exit() calls are caught by longjmp.
      * fuzz_active is set BEFORE newContext() so that even an OOM inside
@@ -150,19 +142,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     }
     fuzz_active = 0;
 
-    /* Flush stdio buffers BEFORE restoring fds to the terminal so that
-     * any buffered output goes to /dev/null, not the user's console. */
-    fflush(stdout);
-    fflush(stderr);
-
-    if (saved_stdout >= 0) {
-        dup2(saved_stdout, STDOUT_FILENO);
-        close(saved_stdout);
-    }
-    if (saved_stderr >= 0) {
-        dup2(saved_stderr, STDERR_FILENO);
-        close(saved_stderr);
-    }
+    /* Output buffered by a longjmp-interrupted run goes to /dev/null. */
+    fclose(devnull);
+    stderr = saved_stderr;
+    stdout = saved_stdout;
 
     /* Cleanup — ctx may be NULL if newContext() triggered longjmp. */
     free(ctx);

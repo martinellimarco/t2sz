@@ -107,13 +107,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     /* A tar header is 512 bytes; anything smaller cannot reach the parser. */
     if (size < 512) return 0;
 
-    /* Suppress stderr noise from t2sz error messages. */
-    int saved_stderr = dup(STDERR_FILENO);
-    int devnull_err = open("/dev/null", O_WRONLY);
-    if (devnull_err >= 0) {
-        dup2(devnull_err, STDERR_FILENO);
-        close(devnull_err);
-    }
+    /* Silence t2sz's messages through the stderr FILE, not file descriptor
+     * 2: the sanitizers and libFuzzer write their reports there. */
+    FILE *saved_stderr = stderr;
+    stderr = fopen("/dev/null", "w");
+    if (!stderr) abort();
 
     /* Collect the compressed output in memory, written through stdout. */
     char *out = NULL;
@@ -151,15 +149,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     }
     fuzz_active = 0;
 
-    /* Flush stderr BEFORE restoring its fd to the terminal so that messages
-     * buffered by a longjmp-interrupted run go to /dev/null. */
-    fflush(stderr);
-    if (saved_stderr >= 0) {
-        dup2(saved_stderr, STDERR_FILENO);
-        close(saved_stderr);
-    }
+    /* Messages buffered by a longjmp-interrupted run go to /dev/null. */
+    fclose(stderr);
+    stderr = saved_stderr;
 
-    /* After a run that did not fail, with stderr back for the crash report. */
+    /* After a run that did not fail. */
     if (jumped == 0)
         fuzzCheckRoundTrip(data, size, out, outLen);
     stdout = saved_stdout;
