@@ -84,6 +84,51 @@ make_small_dat() {
     printf '\x01\x02\x03\x04\x05\x06\x07\x08' > "$1"
 }
 
+# Assert that the zstd file $1 decompresses to exactly the bytes of $2.
+# Hashes rather than cmp: macOS cmp reads a pipe one byte at a time (35 MB/s).
+assert_roundtrip() {
+    if [ "$(zstd -d -c -q "$1" 2>/dev/null | $SHA256CMD | awk '{print $1}')" != "$(sha256_file "$2")" ]; then
+        log_fail "$TEST_NAME — $(basename "$1") does not decompress to $(basename "$2")"
+        exit 1
+    fi
+}
+
+# Create $1: a sparse file of $2 bytes, all zeros except the marker T2SZMARK
+# at its start and a 'Z' as its last byte.
+make_big_file() {
+    make_sparse "$1" "$2"
+    poke "$1" 0 T2SZMARK
+    poke "$1" $(( $2 - 1 )) Z
+}
+
+# Build $3: a tar archive with one member "big" of $2 bytes, made by
+# make_big_file. The headers come from the real tar in format $1 (ustar, gnu
+# or pax); the payload is a hole, so the archive costs no disk space where
+# sparse files are supported.
+make_big_member_tar() {
+    local fmt="$1" size="$2" out="$3" flags off
+    mkdir -p "$WORK/bigsrc"
+    make_big_file "$WORK/bigsrc/big" "$size"
+    flags="--format=$fmt"
+    if ! tar --version 2>/dev/null | grep -q 'GNU tar'; then
+        # bsdtar: GNU format has another name, and holes must be stored as
+        # plain zeros, not as a sparse entry (GNU tar does that by default).
+        [ "$fmt" = gnu ] && flags="--format=gnutar"
+        flags="$flags --no-read-sparse"
+    fi
+    # Only the first records are needed: head closes the pipe and tar stops.
+    { COPYFILE_DISABLE=1 tar $flags -cf - -C "$WORK/bigsrc" big | head -c 65536 > "$WORK/prefix.bin"; } 2>/dev/null
+    off=$(grep -abo T2SZMARK "$WORK/prefix.bin" | head -n 1 | cut -d: -f1)
+    if [ -z "$off" ]; then
+        log_fail "$TEST_NAME — tar $flags produced no payload for the big member"
+        exit 1
+    fi
+    make_sparse "$out" $(( off + (size + 511) / 512 * 512 + 1024 ))
+    head -c $(( off + 8 )) "$WORK/prefix.bin" | dd of="$out" conv=notrunc 2>/dev/null
+    poke "$out" $(( off + size - 1 )) Z
+    rm -f "$WORK/bigsrc/big"
+}
+
 # ── Test dispatch ─────────────────────────────────────────────────────────────
 case "$TEST_NAME" in
 

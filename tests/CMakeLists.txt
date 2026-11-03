@@ -28,6 +28,7 @@ function(add_roundtrip_test name)
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
     set_tests_properties(${name} PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+    set_test_env(${name})
 endfunction()
 
 # ── helper: register a CLI / error-path test ─────────────────────────────────
@@ -45,6 +46,7 @@ function(add_error_test name test_id)
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
     set_tests_properties(${name} PROPERTIES TIMEOUT 30 SKIP_RETURN_CODE 77)
+    set_test_env(${name})
 endfunction()
 
 # ── LLVM_PROFILE_FILE for coverage builds ────────────────────────────────────
@@ -227,44 +229,3 @@ add_error_test(err_seektable_grow            seektable_grow)
 
 # ── Garbage between number and suffix in -s/-S ──────────────────────────
 add_error_test(err_garbage_suffix            garbage_suffix)
-
-# ── Apply COVERAGE / SANITIZE env vars to all tests ──────────────────────────
-foreach(tname
-    raw_1mb raw_100mb
-    raw_1mb_s256k raw_1mb_noseek raw_1mb_level1 raw_1mb_level22
-    tar_single tar_multi tar_multi_s512k tar_big_S1M tar_multi_sS tar_multi_threads
-    empty_tar raw_1gb tar_500mb
-    tar_single_v raw_1mb_v tar_unaligned
-    err_no_args err_too_many_args
-    err_bad_level_low err_bad_level_high
-    err_bad_block_s err_bad_block_S
-    err_bad_threads err_block_S_lt_s
-    err_help err_version
-    err_file_not_found err_output_bad_path
-    err_overwrite_no err_overwrite_yes
-    err_corrupt_tar err_auto_raw
-    err_auto_outname err_multiplier_suffixes
-    stdin_raw_to_file stdin_tar_to_file stdin_raw_to_stdout
-    err_stdin_empty_raw err_stdin_empty_tar_mode err_mmap_tiny_tar
-    err_stdin_default_stdout err_stdin_file_stdout
-    stdin_raw_s256k stdin_raw_noseek stdin_raw_v
-    stdin_tar_S1M stdin_tar_v
-    stdin_tar_multi stdin_tar_multi_s512k stdin_tar_multi_sS
-    stdin_tar_to_stdout
-    err_stdin_corrupt_tar err_stdin_empty_tar
-    err_stdin_truncated_tar err_stdin_truncated_payload
-    err_stdout_tar_file err_empty_file
-    err_noseek_verify
-    err_raw_nonmultiple_s err_stdin_raw_nonmultiple_s
-    err_trailing_junk_tar
-    err_tar_with_dirs_symlinks
-    err_stdin_explicit_stdout_raw err_stdin_explicit_stdout_tar
-    err_bad_level_strtol err_bad_block_s_strtol err_bad_block_S_strtol
-    err_bad_threads_strtol err_unknown_option
-    err_multiplier_suffixes_extra
-    err_stdin_overwrite_no_force err_stdin_overwrite_force
-    err_overflow_s err_overflow_S
-    err_seektable_grow
-    err_garbage_suffix)
-    set_test_env(${tname})
-endforeach()

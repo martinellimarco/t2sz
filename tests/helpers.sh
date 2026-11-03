@@ -277,3 +277,67 @@ verify_no_seek_table() {
 
     return 0
 }
+
+# ── is_wine ─────────────────────────────────────────────────────────────────
+# True when t2sz.exe runs through Wine, on a host that is not Windows, as
+# windows/win-cross-test.sh does in CI.
+is_wine() {
+    case "$OS" in *_NT*) return 1 ;; esac
+    case "${T2SZ:-}" in *.exe) return 0 ;; *) return 1 ;; esac
+}
+
+# ── is_windows ──────────────────────────────────────────────────────────────
+# True when t2sz is a Windows program: the suite runs under MSYS2, Git Bash
+# or Cygwin on Windows (uname -s is MSYS_NT-*, MINGW64_NT-*, CLANGARM64_NT-*,
+# CYGWIN_NT-*, ...), or t2sz.exe runs through Wine.
+is_windows() {
+    case "$OS" in
+        *_NT*) return 0 ;;
+        *) is_wine ;;
+    esac
+}
+
+# ── seek_table_frames <file> ────────────────────────────────────────────────
+# Prints Number_Of_Frames from the seek table footer.
+seek_table_frames() {
+    local size
+    size=$(wc -c < "$1")
+    read_le32 "$1" $(( size - 9 ))
+}
+
+# ── seek_table_entries <file> ───────────────────────────────────────────────
+# Prints one "Compressed_Size Decompressed_Size" line per seek table entry.
+# The whole table is read with a single od: a process per entry is slow on
+# Windows.
+seek_table_entries() {
+    local size n
+    size=$(wc -c < "$1")
+    n=$(read_le32 "$1" $(( size - 9 )))
+    [ "$n" -gt 0 ] || return 0
+    od -A n -t u1 -v -j $(( size - 9 - n * 8 )) -N $(( n * 8 )) "$1" |
+        awk '{ for (i = 1; i <= NF; i++) b[k++] = $i }
+             END { for (e = 0; e < k; e += 8)
+                       printf "%.0f %.0f\n", b[e] + b[e+1]*256 + b[e+2]*65536 + b[e+3]*16777216,
+                                             b[e+4] + b[e+5]*256 + b[e+6]*65536 + b[e+7]*16777216 }'
+}
+
+# ── seek_table_entry <file> <index> <field> ─────────────────────────────────
+# Prints Compressed_Size (field 0) or Decompressed_Size (field 1) of the
+# seek table entry <index>.
+seek_table_entry() {
+    seek_table_entries "$1" | awk -v i="$2" -v f="$3" 'NR == i + 1 { print $(f + 1) }'
+}
+
+# ── make_sparse <file> <size> ───────────────────────────────────────────────
+# Creates <file> of <size> zero bytes without writing them (a hole where the
+# filesystem supports sparse files).
+make_sparse() {
+    rm -f "$1"
+    dd if=/dev/null of="$1" bs=1 seek="$2" 2>/dev/null
+}
+
+# ── poke <file> <offset> <string> ───────────────────────────────────────────
+# Writes <string> into <file> at <offset> without truncating it.
+poke() {
+    printf '%s' "$3" | dd of="$1" bs=1 seek="$2" conv=notrunc 2>/dev/null
+}
