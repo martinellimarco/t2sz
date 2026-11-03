@@ -1,6 +1,9 @@
 name: Test Build
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_call: # the tests of deploy.yml and aur.yml
 
 permissions:
   contents: read
