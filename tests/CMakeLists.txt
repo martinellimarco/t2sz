@@ -205,6 +205,7 @@ add_error_test(err_tar_with_dirs_symlinks    tar_with_dirs_symlinks)
 
 # ── Explicit -o - with stdin ────────────────────────────────────────────────
 add_error_test(err_stdin_explicit_stdout_raw stdin_explicit_stdout_raw)
+add_error_test(err_fifo_input                fifo_input)
 add_error_test(err_stdin_explicit_stdout_tar stdin_explicit_stdout_tar)
 
 # ── Argument parsing edge cases: strtol failures, negative, overflow ───────

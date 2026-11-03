@@ -577,6 +577,39 @@ stdin_explicit_stdout_raw)
     log_pass "$TEST_NAME"
     ;;
 
+fifo_input)
+    # A path that is a pipe (a FIFO, or a process substitution like <(...))
+    # cannot be mapped, so t2sz streams it. A name without .tar means raw
+    # mode, one frame; read as '-' (t2sz - < fifo, as the help says) the same
+    # stream is compressed as a tar, with the frames it gets from a file.
+    is_windows && { log_skip "$TEST_NAME — native Windows programs cannot open MSYS2 FIFOs"; exit 77; }
+    make_small_tar "$WORK/input.tar"
+    assert_exit 0  "$T2SZ" -f -o "$WORK/file.zst" "$WORK/input.tar"
+    mkfifo "$WORK/fifo" || { log_fail "$TEST_NAME — mkfifo failed"; exit 1; }
+    # If t2sz never opened the FIFO, the writer would stay blocked in open():
+    # stop it in any case, so that the test fails instead of hanging.
+    cat "$WORK/input.tar" > "$WORK/fifo" &
+    writer=$!
+    run "$T2SZ" -f -o "$WORK/fifo.zst" "$WORK/fifo"
+    kill "$writer" 2>/dev/null
+    wait "$writer" 2>/dev/null
+    assert_rc 0
+    assert_exit 0  "$T2SZ" -f -o "$WORK/procsub.zst" <(cat "$WORK/input.tar")
+    assert_exit 0  "$T2SZ" -f -o "$WORK/stdin.zst" - < <(cat "$WORK/input.tar")
+    for src in fifo procsub stdin; do
+        assert_roundtrip "$WORK/$src.zst" "$WORK/input.tar"
+    done
+    [ "$(seek_table_frames "$WORK/fifo.zst")" -eq 1 ] && [ "$(seek_table_frames "$WORK/procsub.zst")" -eq 1 ] || {
+        log_fail "$TEST_NAME — a pipe named without .tar was not compressed in raw mode"
+        exit 1
+    }
+    [ "$(seek_table_frames "$WORK/stdin.zst")" -eq "$(seek_table_frames "$WORK/file.zst")" ] || {
+        log_fail "$TEST_NAME — $(seek_table_frames "$WORK/stdin.zst") frames through '-', $(seek_table_frames "$WORK/file.zst") from the file"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
 stdin_explicit_stdout_tar)
     # stdin tar mode with explicit -o - (not relying on default stdout).
     make_small_tar "$WORK/input.tar"
