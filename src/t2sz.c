@@ -435,7 +435,7 @@ static void seekTableEnsureCap(Context* ctx, const size_t needed) {
  *
  * Recording silently becomes a no-op if the seek table has been disabled (by -j
  * or by overflow guards). Disables the table and prints a warning if
- * the frame count or sizes exceed the seekable-format uint32 limits.
+ * the frame count exceeds the seekable-format limit.
  *
  * @param ctx               The compression context.
  * @param compressedSize    Compressed size of the frame (bytes).
@@ -451,16 +451,6 @@ void seekTableAdd(Context* ctx, const uint64_t compressedSize, const uint64_t de
     if(ctx->seekTableLen + 1 >= 0x8000000U){
         ctx->skipSeekTable = true;
         fprintf(stderr, "Warning: Too many frames. Unable to generate the seek table.\n");
-        return;
-    }
-    if(decompressedSize >= 0x80000000U){
-        ctx->skipSeekTable = true;
-        fprintf(stderr, "Warning: Input frame too big. Unable to generate the seek table.\n");
-        return;
-    }
-    if(compressedSize >= 0x100000000ULL){
-        ctx->skipSeekTable = true;
-        fprintf(stderr, "Warning: Compressed frame too big. Unable to generate the seek table.\n");
         return;
     }
 
@@ -757,12 +747,17 @@ static uint64_t zstdEndFrame(const Context *ctx){
     return compressedSize;
 }
 
+static void endFrameAndRecord(Context *ctx, const uint64_t frameIn, uint64_t frameOut, bool *frameOpen);
+static void pushBytesTar(Context *ctx, const uint8_t *src, const size_t n, uint64_t *frameIn, uint64_t *frameOut, bool *frameOpen);
+
 /**
  * Compress raw (non-tar) data read from standard input.
  *
  * Two modes based on ctx->minBlockSize:
- *   - minBlockSize == 0: streams all of stdin into a single frame with
- *     unknown pledged size (matches the mmap "whole file" behaviour).
+ *   - minBlockSize == 0: streams all of stdin into one frame with unknown
+ *     pledged size (matches the mmap "whole file" behaviour), cut by
+ *     pushBytesTar() only where a frame would exceed maxBlockSize, the
+ *     largest frame the seek table can describe (see compressFile()).
  *   - minBlockSize > 0: buffers exactly minBlockSize bytes at a time,
  *     compressing each chunk as an independent frame with known size.
  *     The last frame may be smaller if EOF is reached mid-buffer.
@@ -776,13 +771,10 @@ static void compressStdinRaw(Context *ctx){
     // Two behaviours:
     // - If -s is set (minBlockSize > 0): read exactly one frame worth of bytes into a frame buffer,
     //   then compress it as an independent frame with correct pledged size.
-    // - If -s is not set: stream into a single frame (pledged unknown), matching original "whole file" raw behaviour.
+    // - If -s is not set: stream into a single frame (pledged unknown), matching original "whole file" raw behaviour,
+    //   cut only where it would not fit in the seek table.
 
     if(ctx->minBlockSize == 0){
-        // Single-frame streaming, pledged unknown
-        zstdResetFrame(ctx);
-        zstdSetPledged(ctx, 0, false);
-
         const size_t inChunk = ZSTD_CStreamInSize();
         uint8_t *inBuf = malloc(inChunk);
         if(!inBuf){
@@ -790,41 +782,24 @@ static void compressStdinRaw(Context *ctx){
             exit(EXIT_FAILURE);
         }
 
-        uint64_t decompressedSize = 0;
-        uint64_t compressedSize = 0;
+        uint64_t frameIn = 0, frameOut = 0;
+        bool frameOpen = false;
 
         while(true){
             const size_t n = fread(inBuf, 1, inChunk, stdin);
             if(n > 0){
-                decompressedSize += n;
-
-                ZSTD_inBuffer input = { inBuf, n, 0 };
-                while(input.pos < input.size){
-                    ZSTD_outBuffer output = { ctx->outBuff, ctx->outBuffSize, 0 };
-                    const size_t remaining = ZSTD_compressStream2(ctx->cctx, &output, &input, ZSTD_e_continue);
-                    if(ZSTD_isError(remaining)){
-                        fprintf(stderr, "ERROR: Can't compress stream: %s\n", ZSTD_getErrorName(remaining));
-                        free(inBuf);
-                        exit(EXIT_FAILURE);
-                    }
-                    compressedSize += checkedFwrite(ctx->outBuff, output.pos, ctx->outFile);
-                }
+                pushBytesTar(ctx, inBuf, n, &frameIn, &frameOut, &frameOpen);
+                continue;
             }
-
-            if(n == 0){
-                if(ferror(stdin)){
-                    fprintf(stderr, "ERROR: Read error on stdin\n");
-                    free(inBuf);
-                    exit(EXIT_FAILURE);
-                }
-                // EOF
-                break;
+            if(ferror(stdin)){
+                fprintf(stderr, "ERROR: Read error on stdin\n");
+                free(inBuf);
+                exit(EXIT_FAILURE);
             }
+            break; // EOF
         }
 
-        compressedSize += zstdEndFrame(ctx);
-
-        seekTableAdd(ctx, compressedSize, decompressedSize);
+        endFrameAndRecord(ctx, frameIn, frameOut, &frameOpen);
 
         free(inBuf);
         return;
@@ -1247,6 +1222,10 @@ static void cleanupCompression(Context *ctx){
     free(ctx->outBuff);        ctx->outBuff = NULL;
 }
 
+/* The largest frame t2sz writes. The seek table stores frame sizes as
+ * 32-bit numbers, and t2sz keeps them below 2 GiB. */
+#define MAX_FRAME_SIZE 0x7FFFFFFFU
+
 /**
  * Top-level compression driver.
  *
@@ -1270,6 +1249,15 @@ static void cleanupCompression(Context *ctx){
  *             outFilename or stdoutMode, level, rawMode, block sizes, etc.).
  */
 void compressFile(Context *ctx){
+    // Cut every input into frames the seek table can describe, whatever
+    // -s and -S say (-S does not apply to raw mode).
+    if(ctx->rawMode || !ctx->maxBlockSize || ctx->maxBlockSize > MAX_FRAME_SIZE){
+        ctx->maxBlockSize = MAX_FRAME_SIZE;
+    }
+    if(ctx->minBlockSize > MAX_FRAME_SIZE){
+        ctx->minBlockSize = MAX_FRAME_SIZE;
+    }
+
     // For file inputs, prepareInput() may detect a non-seekable source
     // (pipe, FIFO, process substitution) and switch to stdinMode.
     if(!ctx->stdinMode){
@@ -1317,19 +1305,16 @@ void compressFile(Context *ctx){
         while(!lastChunk || residual) {
             size_t blockSize = 0;
             if(ctx->rawMode){
-                if(ctx->minBlockSize){
-                    const size_t remaining =
-                        (size_t)((ctx->inBuff + ctx->inBuffSize) - readBuff);
-                    if(remaining == 0){
-                        break;
-                    }
-                    blockSize = ctx->minBlockSize;
-                    if(blockSize > remaining){
-                        blockSize = remaining;
-                        lastChunk = true;
-                    }
-                }else{
-                    blockSize = ctx->inBuffSize;
+                // Blocks of -s bytes, or of the whole input, cut where a frame
+                // would not fit in the seek table.
+                const size_t remaining =
+                    (size_t)((ctx->inBuff + ctx->inBuffSize) - readBuff);
+                if(remaining == 0){
+                    break;
+                }
+                blockSize = ctx->minBlockSize ? ctx->minBlockSize : ctx->maxBlockSize;
+                if(blockSize > remaining){
+                    blockSize = remaining;
                     lastChunk = true;
                 }
             }else{
@@ -1599,6 +1584,7 @@ void usage(const char *name, const char *str){
             "\t                                Each block is compressed to a zstd frame but if the archive has a lot of small files\n"
             "\t                                having a file per block doesn't compress very well. With this you can set a trade off.\n"
             "\t                   The greater is SIZE the smaller will be the archive at the expense of the seek speed.\n"
+            "\t                   A SIZE over 2 GiB - 1 byte, the most the seek table describes, is lowered to it.\n"
             "\t                   SIZE may be followed by the following multiplicative suffixes:\n"
             "\t                       k/K/KiB = 1024\n"
             "\t                       M/MiB = 1024^2\n"
@@ -1611,6 +1597,7 @@ void usage(const char *name, const char *str){
             "\t                   Unlike -s this option may split big files in smaller chunks.\n"
             "\t                   Remember that each block is compressed independently and a small value here will result in a bigger archive.\n"
             "\t                   -S can be used together with -s but MUST be greater or equal to its value.\n"
+            "\t                   In either mode no block is larger than 2 GiB - 1 byte, the most the seek table describes.\n"
             "\t                   If -S and -s are equal the input block will be of exactly that size, if there is enough input data.\n"
             "\t                   Like -s SIZE may be followed by one of the multiplicative suffixes described above.\n"
             "\t-T [1..N]          Number of thread to spawn. It improves compression speed but cost more memory. Default is single thread.\n"

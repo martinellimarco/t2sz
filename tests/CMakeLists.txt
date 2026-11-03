@@ -258,6 +258,10 @@ set_tests_properties(err_base256_size PROPERTIES TIMEOUT 900)
 
 # ── seekTableEnsureCap realloc growth (>1024 frames) ──────────────────────
 add_error_test(err_seektable_grow            seektable_grow)
+add_error_test(err_huge_raw_frame_seek_table huge_raw_frame_seek_table)
+set_tests_properties(err_huge_raw_frame_seek_table PROPERTIES TIMEOUT 900)
+add_error_test(err_huge_member_seek_table    huge_member_seek_table)
+set_tests_properties(err_huge_member_seek_table PROPERTIES TIMEOUT 900)
 
 # ── Garbage between number and suffix in -s/-S ──────────────────────────
 add_error_test(err_garbage_suffix            garbage_suffix)

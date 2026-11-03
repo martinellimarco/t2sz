@@ -1373,6 +1373,36 @@ seektable_grow)
     log_pass "$TEST_NAME"
     ;;
 
+huge_raw_frame_seek_table)
+    # The raw-mode side of huge_member_seek_table: without -s the whole file
+    # is one frame, so from 2 GiB up seekTableAdd() drops the seek table
+    # with only a warning and the run still exits 0.
+    check_disk_space "$BLOBS_DIR" 4 || { log_skip "$TEST_NAME — needs 4 GB free"; exit 77; }
+    make_big_file "$WORK/big.bin" 3221225472
+    assert_exit 0  "$T2SZ" -r -f -o "$WORK/out.zst" "$WORK/big.bin"
+    assert_exit 0  "$T2SZ" -r -f -o "$WORK/stdin.zst" - < "$WORK/big.bin"
+    for src in out stdin; do
+        verify_seek_table_structure "$WORK/$src.zst" || exit 1
+        assert_roundtrip "$WORK/$src.zst" "$WORK/big.bin"
+    done
+    log_pass "$TEST_NAME"
+    ;;
+
+huge_member_seek_table)
+    # A frame of 2 GiB or more makes seekTableAdd() drop the whole seek
+    # table; as the first frame it also leaves seekTableLen at 0, so the run
+    # ends with exit 1 after writing everything.
+    check_disk_space "$BLOBS_DIR" 10 || { log_skip "$TEST_NAME — needs 10 GB free"; exit 77; }
+    make_big_member_tar ustar 2147483648 "$WORK/big.tar"
+    assert_exit 0  "$T2SZ" -o "$WORK/out.zst" -f "$WORK/big.tar"
+    assert_exit 0  "$T2SZ" -o "$WORK/stdin.zst" -f - < "$WORK/big.tar"
+    for src in out stdin; do
+        verify_seek_table_structure "$WORK/$src.zst" || exit 1
+        assert_roundtrip "$WORK/$src.zst" "$WORK/big.tar"
+    done
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── Garbage between number and suffix in -s/-S ──────────────────────────────
 
 garbage_suffix)
