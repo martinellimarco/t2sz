@@ -160,6 +160,8 @@ typedef struct {
     size_t seekTableLen;
     size_t seekTableCap;
     bool skipSeekTable;
+
+    size_t frameCount; //frames written, counted with or without a seek table
 } Context;
 
 /* Compile-time endianness detection.  GCC/Clang define __BYTE_ORDER__
@@ -310,9 +312,9 @@ static void seekTableEnsureCap(Context* ctx, const size_t needed) {
 }
 
 /**
- * Record a compressed frame in the seek table.
+ * Count a compressed frame and record it in the seek table.
  *
- * Silently becomes a no-op if the seek table has been disabled (by -j
+ * Recording silently becomes a no-op if the seek table has been disabled (by -j
  * or by overflow guards). Disables the table and prints a warning if
  * the frame count or sizes exceed the seekable-format uint32 limits.
  *
@@ -321,6 +323,7 @@ static void seekTableEnsureCap(Context* ctx, const size_t needed) {
  * @param decompressedSize  Decompressed size of the frame (bytes).
  */
 void seekTableAdd(Context* ctx, const uint64_t compressedSize, const uint64_t decompressedSize){
+    ctx->frameCount++;
     if(ctx->skipSeekTable){
         return;
     }
@@ -1013,7 +1016,7 @@ static void compressStdinTar(Context *ctx){
         endFrameAndRecord(ctx, frameIn, frameOut, &frameOpen);
     }
 
-    if(ctx->seekTableLen == 0){
+    if(ctx->frameCount == 0){
         fprintf(stderr, "ERROR: No tar entries found on stdin. "
                 "If this is not a tar archive use raw mode (-r)\n");
         free(chunkBuf);
@@ -1235,7 +1238,7 @@ void compressFile(Context *ctx){
             readBuff += blockSize;
         }
 
-        if(!ctx->rawMode && ctx->seekTableLen == 0){
+        if(!ctx->rawMode && ctx->frameCount == 0){
             fprintf(stderr, "ERROR: No tar entries found in input. "
                     "If this is not a tar archive use raw mode (-r)\n");
             if(ctx->inFilename){

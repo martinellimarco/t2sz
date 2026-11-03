@@ -197,6 +197,7 @@ add_error_test(err_empty_file              empty_file)
 
 # ── Seek table structural verification ──────────────────────────────────────
 add_error_test(err_noseek_verify             noseek_verify)
+add_error_test(err_noseek_tar                noseek_tar)
 
 # ── Raw -s with non-multiple input size ─────────────────────────────────────
 add_error_test(err_raw_nonmultiple_s         raw_nonmultiple_s)

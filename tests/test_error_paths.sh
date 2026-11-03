@@ -567,6 +567,19 @@ noseek_verify)
     log_pass "$TEST_NAME"
     ;;
 
+noseek_tar)
+    # -j in tar mode: with the seek table off no frame is counted, and the
+    # "no tar entries" check turns a complete run into exit 1.
+    make_small_tar "$WORK/input.tar"
+    assert_exit 0  "$T2SZ" -j -o "$WORK/mmap.zst" -f "$WORK/input.tar"
+    assert_roundtrip "$WORK/mmap.zst" "$WORK/input.tar"
+    verify_no_seek_table "$WORK/mmap.zst" || exit 1
+    assert_exit 0  "$T2SZ" -j -o "$WORK/stdin.zst" -f - < "$WORK/input.tar"
+    assert_roundtrip "$WORK/stdin.zst" "$WORK/input.tar"
+    verify_no_seek_table "$WORK/stdin.zst" || exit 1
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── Raw -s with non-multiple input size ─────────────────────────────────────
 
 raw_nonmultiple_s)
