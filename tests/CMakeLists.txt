@@ -217,6 +217,7 @@ add_error_test(err_tar_with_dirs_symlinks    tar_with_dirs_symlinks)
 add_error_test(err_stdin_explicit_stdout_raw stdin_explicit_stdout_raw)
 add_error_test(err_fifo_input                fifo_input)
 add_error_test(err_stdin_explicit_stdout_tar stdin_explicit_stdout_tar)
+add_error_test(err_stdin_frame_header        stdin_frame_header)
 
 # ── Argument parsing edge cases: strtol failures, negative, overflow ───────
 add_error_test(err_bad_level_strtol          bad_level_strtol)

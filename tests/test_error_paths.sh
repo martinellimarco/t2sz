@@ -861,6 +861,31 @@ stdin_explicit_stdout_tar)
     log_pass "$TEST_NAME"
     ;;
 
+stdin_frame_header)
+    # From stdin every frame started with an unknown pledged size: no content
+    # size in the frame header, and zstd sizes window and tables for an
+    # unbounded input (about 700 MiB of RAM at -l 22 for a tiny archive).
+    # Without -s each entry has a frame of its own, whose size is known. The
+    # archive is ustar: an extended header (pax or GNU long name) shares the
+    # frame of the entry it describes, and from stdin the size of that frame
+    # is not known when it starts.
+    printf 'hello t2sz error tests\n' > "$WORK/hello.txt"
+    COPYFILE_DISABLE=1 tar --format=ustar -cf "$WORK/input.tar" -C "$WORK" hello.txt || {
+        log_fail "$TEST_NAME — tar creation failed"
+        exit 1
+    }
+    assert_exit 0  "$T2SZ" -o "$WORK/file.zst" -f "$WORK/input.tar"
+    assert_exit 0  "$T2SZ" -o "$WORK/stdin.zst" -f - < "$WORK/input.tar"
+    assert_roundtrip "$WORK/stdin.zst" "$WORK/input.tar"
+    a=$(read_byte "$WORK/file.zst" 4)    # Frame_Header_Descriptor of frame 0
+    b=$(read_byte "$WORK/stdin.zst" 4)
+    [ "$a" -eq "$b" ] || {
+        log_fail "$TEST_NAME — frame header descriptor $(printf 0x%02x "$b") from stdin, $(printf 0x%02x "$a") from the file"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── Argument parsing edge cases: strtol failures ────────────────────────────
 
 bad_level_strtol)
