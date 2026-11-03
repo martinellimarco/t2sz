@@ -258,3 +258,4 @@ add_error_test(err_seektable_grow            seektable_grow)
 
 # ── Garbage between number and suffix in -s/-S ──────────────────────────
 add_error_test(err_garbage_suffix            garbage_suffix)
+add_error_test(err_block_size_bytes_over_2gib block_size_bytes_over_2gib)
