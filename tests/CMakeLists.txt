@@ -233,6 +233,8 @@ set_tests_properties(err_ustar_size_over_4gib PROPERTIES TIMEOUT 900)
 
 # ── decodeMultiplier extra suffixes (K/KiB/MiB/G) ─────────────────────────
 add_error_test(err_multiplier_suffixes_extra multiplier_suffixes_extra)
+add_error_test(err_pax_size                  pax_size)
+set_tests_properties(err_pax_size PROPERTIES TIMEOUT 900)
 
 # ── Stdin overwrite protection ────────────────────────────────────────────
 add_error_test(err_stdin_overwrite_no_force  stdin_overwrite_no_force)

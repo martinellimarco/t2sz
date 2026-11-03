@@ -173,6 +173,59 @@ static bool hasSparseExtension(const TarHeader *header){
     return header->typeflag == 'S' && ((const uint8_t*)header)[482];
 }
 
+/**
+ * Find the "size" record in the data of a pax extended header ('x').
+ *
+ * The data is a list of "<length> <key>=<value>\n" records, <length>
+ * counting the whole record. For an entry of 8 GiB or more GNU tar puts
+ * the size only here and writes 0 in the ustar size field.
+ *
+ * @param data  The data of the extended header.
+ * @param len   Its length in bytes, padding excluded.
+ * @return      The size, or UINT64_MAX if there is none (or it is invalid).
+ */
+static uint64_t paxSize(const uint8_t *data, const size_t len){
+    size_t pos = 0;
+    while(pos < len){
+        size_t recLen = 0, i = pos;
+        while(i < len && data[i] >= '0' && data[i] <= '9' && recLen <= len){
+            recLen = recLen * 10 + (data[i++] - '0');
+        }
+        if(recLen == 0 || recLen > len - pos){
+            break; // malformed
+        }
+        if(pos + recLen - i > 6 && memcmp(data + i, " size=", 6) == 0){
+            uint64_t size = 0;
+            for(i += 6; i < pos + recLen && data[i] >= '0' && data[i] <= '9'; i++){
+                if(size > (UINT64_MAX - 9) / 10){
+                    return UINT64_MAX;
+                }
+                size = size * 10 + (data[i] - '0');
+            }
+            return size;
+        }
+        pos += recLen;
+    }
+    return UINT64_MAX;
+}
+
+/**
+ * Size of the payload of a tar entry: its size field, unless a pax
+ * extended header before it gave another one, which is then used up.
+ *
+ * @param header       Pointer to a valid tar header.
+ * @param paxNextSize  [in/out] Size from the last pax header, or UINT64_MAX.
+ * @return             The size of the payload in bytes.
+ */
+static uint64_t tarEntrySize(const TarHeader *header, uint64_t *paxNextSize){
+    if(isExtensionHeader(header) || *paxNextSize == UINT64_MAX){
+        return parseTarSize(header);
+    }
+    const uint64_t size = *paxNextSize;
+    *paxNextSize = UINT64_MAX;
+    return size;
+}
+
 typedef struct {
     uint32_t compressedSize;
     uint32_t decompressedSize;
@@ -995,6 +1048,7 @@ static void compressStdinTar(Context *ctx){
 
     uint64_t frameIn = 0, frameOut = 0;
     bool frameOpen = false;
+    uint64_t paxNextSize = UINT64_MAX; // see tarEntrySize()
 
     while(true){
         // Read next 512-byte tar header/block
@@ -1040,7 +1094,7 @@ static void compressStdinTar(Context *ctx){
             exit(EXIT_FAILURE);
         }
 
-        const uint64_t fileSize = parseTarSize(header);
+        const uint64_t fileSize = tarEntrySize(header, &paxNextSize);
         if(fileSize > UINT64_MAX - 1024){
             fprintf(stderr, "ERROR: Invalid tar entry size (too large)\n");
             free(chunkBuf);
@@ -1076,6 +1130,9 @@ static void compressStdinTar(Context *ctx){
         while(remaining > 0){
             const size_t take = remaining > inChunk ? inChunk : (size_t)remaining;
             readExactStdin(chunkBuf, take);
+            if(header->typeflag == 'x' && take == padded){ // all of it in one chunk
+                paxNextSize = paxSize(chunkBuf, (size_t)fileSize);
+            }
             pushBytesTar(ctx, chunkBuf, take, &frameIn, &frameOut, &frameOpen);
             remaining -= take;
         }
@@ -1201,6 +1258,7 @@ void compressFile(Context *ctx){
         size_t tarHeaderIdx = 0;
         uint8_t* readBuff = ctx->inBuff;
         bool extHeader = false; // the last header parsed describes the next entry
+        uint64_t paxNextSize = UINT64_MAX; // see tarEntrySize()
 
         bool lastChunk = false;
         size_t residual = 0;
@@ -1244,7 +1302,7 @@ void compressFile(Context *ctx){
                     }else if(!isZeroTarBlock(&ctx->inBuff[tarHeaderIdx])){//tar ends with null headers that we can skip
                         TarHeader *header = (TarHeader *)&ctx->inBuff[tarHeaderIdx];
                         if(isTarHeader(header)){
-                            const uint64_t entrySize = parseTarSize(header);
+                            const uint64_t entrySize = tarEntrySize(header, &paxNextSize);
                             // No entry is larger than the whole input, which also
                             // keeps the sums below from overflowing.
                             if(entrySize > ctx->inBuffSize){
@@ -1278,6 +1336,9 @@ void compressFile(Context *ctx){
                                 exit(EXIT_FAILURE);
                             }
 
+                            if(header->typeflag == 'x'){
+                                paxNextSize = paxSize(&ctx->inBuff[tarHeaderIdx + 512], (size_t)entrySize);
+                            }
                             tarHeaderIdx += toNextHeader;
                             blockSize += toNextHeader;
                             extHeader = isExtensionHeader(header);

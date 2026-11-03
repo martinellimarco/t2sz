@@ -1016,6 +1016,16 @@ multiplier_suffixes_extra)
     log_pass "$TEST_NAME"
     ;;
 
+pax_size)
+    # A member of 8 GiB or more in pax format: the real size is in the
+    # extended header, which t2sz ignores.
+    check_disk_space "$BLOBS_DIR" 10 || { log_skip "$TEST_NAME — needs 10 GB free"; exit 77; }
+    make_big_member_tar pax 8589934593 "$WORK/big.tar"
+    assert_exit 0  "$T2SZ" -S 1G -o "$WORK/out.zst" -f "$WORK/big.tar"
+    assert_roundtrip "$WORK/out.zst" "$WORK/big.tar"
+    log_pass "$TEST_NAME"
+    ;;
+
 # ── Stdin overwrite protection ────────────────────────────────────────────
 
 stdin_overwrite_no_force)
