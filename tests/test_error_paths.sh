@@ -996,6 +996,8 @@ tar_with_dirs_symlinks)
     mkdir -p "$WORK/content/subdir"
     printf 'hello from t2sz tests\n' > "$WORK/content/file.txt"
     ln -s file.txt "$WORK/content/link.txt"
+    # MSYS2 and Cygwin copy the file unless native symlinks are enabled.
+    [ -L "$WORK/content/link.txt" ] || { log_skip "$TEST_NAME — ln -s made a copy, not a symlink"; exit 77; }
     (cd "$WORK/content" && COPYFILE_DISABLE=1 tar cf "$WORK/archive.tar" subdir file.txt link.txt) || {
         log_fail "$TEST_NAME — tar creation failed"
         exit 1
