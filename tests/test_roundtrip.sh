@@ -88,7 +88,8 @@ compute_raw_frames() {
 # Kinds:
 #   -raw-mmap  <size>  -- <flags>     raw mode via file/mmap path
 #   -raw-stdin <size>  -- <flags>     raw mode via stdin path
-#   -tar       -- <flags>             tar mode (any path)
+#   -tar       <size>  -- <flags>     tar mode (any path)
+# <size> is the uncompressed size, checked against the seek table entries.
 #
 # Notes:
 #   - Stdout mode still writes the seek table (it's appended, no seeking needed)
@@ -118,15 +119,15 @@ verify_roundtrip_seek_table() {
             if has_flag "-s" "$@"; then
                 local expected_frames
                 expected_frames=$(compute_raw_frames "$size" "$@")
-                verify_seek_table "$compressed" "$expected_frames" || exit 1
+                verify_seek_table "$compressed" "$expected_frames" "$size" || exit 1
             else
-                verify_seek_table "$compressed" 1 || exit 1
+                verify_seek_table "$compressed" 1 "$size" || exit 1
             fi
             ;;
         -tar)
             # Tar mode: exact frame count depends on platform tar creating
             # PaxHeader/AppleDouble entries. Use structural check only.
-            verify_seek_table_structure "$compressed" || exit 1
+            verify_seek_table_structure "$compressed" "${kind_args[0]}" || exit 1
             ;;
     esac
 }
@@ -241,7 +242,7 @@ test_tar() {
     done
 
     if $all_ok; then
-        verify_roundtrip_seek_table "$compressed" -tar -- "$@"
+        verify_roundtrip_seek_table "$compressed" -tar "$(wc -c < "$archive")" -- "$@"
         log_pass "$LABEL"
     else
         exit 1
@@ -329,7 +330,7 @@ test_stdin() {
         local sha_after
         sha_after=$(sha256_file "$WORK/extracted/blob.bin")
         if [ "$sha_before" = "$sha_after" ]; then
-            verify_roundtrip_seek_table "$compressed" -tar -- "$@"
+            verify_roundtrip_seek_table "$compressed" -tar "$(wc -c < "$WORK/archive.tar")" -- "$@"
             log_pass "$LABEL ($sub_mode)"
         else
             log_fail "$LABEL — $sub_mode SHA mismatch"
@@ -384,7 +385,7 @@ test_stdin() {
             fi
         done
         if $all_ok; then
-            verify_roundtrip_seek_table "$compressed" -tar -- "$@"
+            verify_roundtrip_seek_table "$compressed" -tar "$(wc -c < "$WORK/archive.tar")" -- "$@"
             log_pass "$LABEL ($sub_mode)"
         else
             exit 1
@@ -403,7 +404,7 @@ test_stdin() {
         local sha_after
         sha_after=$(sha256_file "$WORK/extracted/blob.bin")
         if [ "$sha_before" = "$sha_after" ]; then
-            verify_roundtrip_seek_table "$compressed" -tar -- "$@"
+            verify_roundtrip_seek_table "$compressed" -tar "$(wc -c < "$WORK/archive.tar")" -- "$@"
             log_pass "$LABEL ($sub_mode)"
         else
             log_fail "$LABEL — $sub_mode SHA mismatch"

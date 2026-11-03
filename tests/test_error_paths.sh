@@ -459,7 +459,7 @@ raw_nonmultiple_s)
         log_info "after:  $sha_after"
         exit 1
     fi
-    verify_seek_table "$WORK/out.zst" 4 || exit 1
+    verify_seek_table "$WORK/out.zst" 4 1000001 || exit 1
     log_pass "$TEST_NAME"
     ;;
 
@@ -477,7 +477,7 @@ stdin_raw_nonmultiple_s)
         log_fail "$TEST_NAME — SHA mismatch"
         exit 1
     fi
-    verify_seek_table "$WORK/out.zst" 4 || exit 1
+    verify_seek_table "$WORK/out.zst" 4 1000001 || exit 1
     log_pass "$TEST_NAME"
     ;;
 
@@ -777,7 +777,7 @@ seektable_grow)
         log_fail "$TEST_NAME — SHA mismatch"
         exit 1
     fi
-    verify_seek_table "$WORK/out.zst" 1025 || exit 1
+    verify_seek_table "$WORK/out.zst" 1025 1049600 || exit 1
     log_pass "$TEST_NAME"
     ;;
 
