@@ -28,6 +28,11 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "${SCRIPT_DIR}/win-cross-setup.sh"
 
+# Wine hands command-line arguments to Windows programs in the character
+# set of the locale: a UTF-8 file name needs a UTF-8 locale, which GitHub
+# runners have and a bare container has not.
+export LC_ALL=C.UTF-8
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Target architecture (derived from host)
 # ═══════════════════════════════════════════════════════════════════════════════

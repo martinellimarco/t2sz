@@ -39,6 +39,14 @@ endif()
 
 add_executable(t2sz src/t2sz.c)
 
+# On Windows argv and fopen() go through the process code page: the manifest
+# makes it UTF-8 (Windows 10 1903 and later), so that file names outside the
+# ANSI code page can be opened.
+if(WIN32)
+    enable_language(RC)
+    target_sources(t2sz PRIVATE windows/t2sz.rc)
+endif()
+
 # --- Locate zstd ---
 # On Apple Silicon prefer /opt/homebrew to avoid stale x86_64 libs in /usr/local,
 # but fall back to default paths for Intel Macs, MacPorts, and other setups.
