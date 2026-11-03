@@ -170,7 +170,7 @@ reached without hardware or environment conditions outside normal test execution
 - **`compressFile` fatal paths** — a `ZSTD_compressStream2` error requires a corrupt compression context.
 - **`seekTableAdd` overflow guards** — triggered only by > 134 million frames or a single block > 2 GB.
 - **Multi-thread fallback** — requires libzstd built without `ZSTD_MULTITHREAD`.
-- **`malloc` failure paths** — `newContext()`, `getOutFilename()`, `prepareOutput()`, `compressStdinRaw()`, `compressStdinTar()` all have OOM guards that require memory exhaustion.
+- **`malloc` failure paths** — `newContext()`, `getOutFilename()`, `prepareOutput()`, `compressStdinRaw()` all have OOM guards that require memory exhaustion.
 - **`ferror(stdin)` paths** — `compressStdinRaw()` and `compressStdinTar()` handle read errors on stdin, but bash pipe redirection does not simulate I/O errors.
 
 These are defensive guards, not untested logic.
