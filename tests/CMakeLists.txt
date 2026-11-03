@@ -130,6 +130,7 @@ add_error_test(err_bad_block_S       bad_block_S)
 add_error_test(err_bad_threads       bad_threads)
 add_error_test(err_block_S_lt_s      block_S_lt_s)
 add_error_test(err_help              help)
+add_error_test(err_help_program_name help_program_name)
 add_error_test(err_version           version)
 
 # ── File-system error paths ────────────────────────────────────────────────────

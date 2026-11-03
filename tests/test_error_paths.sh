@@ -194,6 +194,20 @@ help)
     log_pass "$TEST_NAME"
     ;;
 
+help_program_name)
+    # The help text uses positional printf arguments (%1$s), which the
+    # Windows C runtime does not support.
+    out=$("$T2SZ" -h 2>&1)
+    case "$out" in
+        *'$s'*) log_fail "$TEST_NAME — help text shows a literal \$s"; exit 1 ;;
+    esac
+    printf '%s\n' "$out" | grep -q '^Usage: .*t2sz' || {
+        log_fail "$TEST_NAME — no usage line with the program name"
+        exit 1
+    }
+    log_pass "$TEST_NAME"
+    ;;
+
 version)
     # -V must print version information (covering version()) and exit 0.
     assert_exit 0  "$T2SZ" -V

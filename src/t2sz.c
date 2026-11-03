@@ -1294,7 +1294,7 @@ void version(){
  * If @p str is NULL (i.e. invoked via -h), only the help text is
  * printed and the process exits with EXIT_SUCCESS.
  *
- * @param name  The executable name (argv[0]), used in the usage examples.
+ * @param name  The executable name (argv[0]), shown in the Usage line.
  * @param str   Optional error message, or NULL for a clean help request.
  */
 void usage(const char *name, const char *str){
@@ -1317,18 +1317,18 @@ void usage(const char *name, const char *str){
             "\tPython library: https://github.com/martinellimarco/indexed_zstd\n"
             "\tFUSE mount:     https://github.com/mxmlnkn/ratarmount\n"
             "\n"
-            "Usage: %1$s [OPTIONS...] [TAR ARCHIVE | -]\n"
+            "Usage: %s [OPTIONS...] [TAR ARCHIVE | -]\n"
             "\n"
             "Use '-' as the input filename to read from standard input.\n"
             "\n"
             "Examples:\n"
-            "\t%1$s -s 10M any.file                        Compress any.file to any.file.zst, each input block will be of 10M\n"
-            "\t%1$s archive.tar                            Compress archive.tar to archive.tar.zst\n"
-            "\t%1$s -o output.tar.zst archive.tar          Compress archive.tar to output.tar.zst\n"
-            "\t%1$s -o - archive.tar                       Compress archive.tar to standard output\n"
-            "\t%1$s -r -o out.zst -                        Compress stdin (raw mode) to out.zst\n"
-            "\t%1$s -o out.tar.zst -                       Compress tar from stdin to out.tar.zst\n"
-            "\t%1$s -r -o - -                              Compress stdin to stdout (raw mode)\n"
+            "\tt2sz -s 10M any.file                        Compress any.file to any.file.zst, each input block will be of 10M\n"
+            "\tt2sz archive.tar                            Compress archive.tar to archive.tar.zst\n"
+            "\tt2sz -o output.tar.zst archive.tar          Compress archive.tar to output.tar.zst\n"
+            "\tt2sz -o - archive.tar                       Compress archive.tar to standard output\n"
+            "\tt2sz -r -o out.zst -                        Compress stdin (raw mode) to out.zst\n"
+            "\tt2sz -o out.tar.zst -                       Compress tar from stdin to out.tar.zst\n"
+            "\tt2sz -r -o - -                              Compress stdin to stdout (raw mode)\n"
             "\n"
             "Options:\n"
             "\t-l [1..22]         Set compression level, from 1 (lower) to 22 (highest). Default is 3.\n"
