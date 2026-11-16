@@ -149,6 +149,9 @@ run_in_terminal() {
     shift
     is_windows && { log_skip "$TEST_NAME — no terminal for native Windows programs"; exit 77; }
     cmd="$(printf '%q ' "$@"); echo \$? > '$WORK/tty.rc'"
+    # util-linux script(1) runs the command with $SHELL, which may not read
+    # what printf %q writes (fish does not): use this bash.
+    local -x SHELL="$BASH"
     rm -f "$WORK/tty.rc"    # left by an earlier call of the same test
     # Keep typing open until the command ends: BSD script(1) sends the
     # terminal an end-of-file as soon as its stdin closes, ahead of the text.
